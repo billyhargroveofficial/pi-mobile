@@ -97,6 +97,23 @@ public class TranscriptReconcilerTest {
     }
 
     @Test
+    public void resizedImageEchoReplacesOptimisticMessage() {
+        List<ImageRef> images=Collections.singletonList(new ImageRef("/media/test", "image/png"));
+        String text="Сверху должно быть в одну строку там где модель эффорт ";
+        ChatMessage remote=ChatMessage.remote("m",ChatMessage.Role.USER,text+"\n\n[Image: original 1008x2244, displayed at 898x2000. Multiply coordinates by 1.12 to map to original image.]",images,null);
+        ChatMessage local=ChatMessage.local("r",text,images,ChatMessage.LocalState.ACCEPTED);
+        assertEquals(Collections.singletonList(remote),TranscriptReconciler.merge(Collections.singletonList(remote),Collections.singletonList(local)));
+        assertEquals(2,TranscriptReconciler.merge(Collections.singletonList(remoteUser("plain",text)),Collections.singletonList(local)).size());
+    }
+
+    @Test
+    public void imageOnlyPlaceholderEchoMatchesEmptyDraft() {
+        List<ImageRef> images=Collections.singletonList(new ImageRef("/media/test", "image/png"));
+        ChatMessage remote=ChatMessage.remote("m",ChatMessage.Role.USER,"Посмотри изображение",images,null);
+        assertEquals(1,TranscriptReconciler.merge(Collections.singletonList(remote),Collections.singletonList(ChatMessage.local("r","",images,ChatMessage.LocalState.ACCEPTED))).size());
+    }
+
+    @Test
     public void emptyInputsAreHandled() {
         assertTrue(TranscriptReconciler.merge(null, null).isEmpty());
         assertTrue(TranscriptReconciler.merge(Collections.<ChatMessage>emptyList(), null).isEmpty());

@@ -40,7 +40,7 @@ public final class TranscriptReconciler {
         if (baseMessages != null) {
             for (ChatMessage message : baseMessages) {
                 if (message.role() == ChatMessage.Role.USER) {
-                    String key = key(message.text());
+                    String key = key(message);
                     Integer current = availableUserTexts.get(key);
                     availableUserTexts.put(key, current == null ? 1 : current + 1);
                 }
@@ -52,7 +52,7 @@ public final class TranscriptReconciler {
                 result.add(local);
                 continue;
             }
-            String key = key(local.text());
+            String key = key(local);
             Integer current = availableUserTexts.get(key);
             if (current != null && current > 0) {
                 availableUserTexts.put(key, current - 1);
@@ -70,7 +70,14 @@ public final class TranscriptReconciler {
                 || message.localState() == ChatMessage.LocalState.SENDING);
     }
 
-    private static String key(String text) {
-        return text == null ? "" : text;
+    private static String key(ChatMessage message) {
+        String text = message.text();
+        // Pi's image resizing appends this exact metadata to the user text.
+        // Only normalize image messages; ordinary quoted text must stay untouched.
+        if (message.hasImages()) {
+            text = text.replaceAll("(?:\\s*\\[Image: original \\d+x\\d+, displayed at \\d+x\\d+\\. Multiply coordinates by [0-9.]+ to map to original image\\.\\])+$", "").replaceAll("\\s+$", "");
+            if (text.equals("Посмотри изображение")) text = "";
+        }
+        return message.images().size() + ":" + text;
     }
 }

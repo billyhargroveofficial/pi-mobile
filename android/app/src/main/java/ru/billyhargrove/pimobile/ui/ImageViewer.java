@@ -21,6 +21,11 @@ import ru.billyhargrove.pimobile.net.MediaLoader;
 public final class ImageViewer extends AppCompatDialogFragment {
     private Bitmap localBitmap;
     public static void show(android.content.Context context, String url, Bitmap local) {
+        while (!(context instanceof AppCompatActivity) && context instanceof android.content.ContextWrapper) {
+            android.content.Context base=((android.content.ContextWrapper)context).getBaseContext();
+            if(base==context)break;
+            context=base;
+        }
         if (!(context instanceof AppCompatActivity)) return;
         ImageViewer viewer=new ImageViewer(); Bundle args=new Bundle();args.putString("url",url);viewer.setArguments(args);viewer.localBitmap=local;
         viewer.show(((AppCompatActivity)context).getSupportFragmentManager(),"image-viewer");

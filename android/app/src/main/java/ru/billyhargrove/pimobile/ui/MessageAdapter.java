@@ -90,10 +90,15 @@ public final class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.Ho
   StringBuilder key=new StringBuilder(m.stableKey());for(ImageRef ref:m.images())key.append('\n').append(ref.url());
   if(key.toString().equals(container.getTag())){container.setVisibility(m.images().isEmpty()?View.GONE:View.VISIBLE);return;}
   container.setTag(key.toString());container.removeAllViews();container.setVisibility(m.images().isEmpty()?View.GONE:View.VISIBLE);android.content.Context c=container.getContext();
-  for(int i=0;i<Math.min(3,m.images().size());i++){ImageRef ref=m.images().get(i);ImageView image=new ImageView(c);image.setScaleType(ImageView.ScaleType.FIT_CENTER);image.setBackgroundResource(R.drawable.bg_image_placeholder);image.setClipToOutline(true);image.setContentDescription(c.getString(R.string.cd_message_image,i+1));int width=Math.min(dp(c,480),c.getResources().getDisplayMetrics().widthPixels-dp(c,72));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(width,dp(c,170));p.bottomMargin=dp(c,8);container.addView(image,p);
-   if(ref.url().startsWith(LOCAL_PREFIX)){int index=i;try{index=Integer.parseInt(ref.url().substring(LOCAL_PREFIX.length()));}catch(NumberFormatException ignored){}Bitmap b=thumbs==null?null:thumbs.thumbnail(m.requestId(),index);if(b!=null){image.setImageBitmap(b);image.setOnClickListener(v->ImageViewer.show(c,ref.url(),b));}}
-   else loader.load(ref.url(),new MediaLoader.Callback(){public void onLoaded(String url,Bitmap b){image.setImageBitmap(b);image.setOnClickListener(v->ImageViewer.show(c,ref.url(),null));}public void onFailed(String url,String error){image.setContentDescription("Image unavailable: "+error);}});
+  for(int i=0;i<Math.min(3,m.images().size());i++){ImageRef ref=m.images().get(i);ImageView image=new ImageView(c);image.setScaleType(ImageView.ScaleType.FIT_CENTER);image.setBackgroundResource(R.drawable.bg_image_placeholder);image.setClipToOutline(true);image.setContentDescription(c.getString(R.string.cd_message_image,i+1));int width=Math.min(dp(c,240),c.getResources().getDisplayMetrics().widthPixels-dp(c,72));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(width,dp(c,220));p.bottomMargin=dp(c,8);container.addView(image,p);
+   if(ref.url().startsWith(LOCAL_PREFIX)){int index=i;try{index=Integer.parseInt(ref.url().substring(LOCAL_PREFIX.length()));}catch(NumberFormatException ignored){}Bitmap b=thumbs==null?null:thumbs.thumbnail(m.requestId(),index);if(b!=null){fitThumbnail(image,b);image.setOnClickListener(v->ImageViewer.show(c,ref.url(),b));}}
+   else loader.load(ref.url(),new MediaLoader.Callback(){public void onLoaded(String url,Bitmap b){fitThumbnail(image,b);image.setOnClickListener(v->ImageViewer.show(c,ref.url(),b));}public void onFailed(String url,String error){image.setContentDescription("Image unavailable: "+error);}});
   }
+ }
+ private void fitThumbnail(ImageView image,Bitmap bitmap){
+  android.content.Context c=image.getContext();int maxWidth=Math.min(dp(c,240),c.getResources().getDisplayMetrics().widthPixels-dp(c,72)),maxHeight=dp(c,280);
+  float scale=Math.min((float)maxWidth/bitmap.getWidth(),(float)maxHeight/bitmap.getHeight());
+  android.view.ViewGroup.LayoutParams p=image.getLayoutParams();p.width=Math.max(1,Math.round(bitmap.getWidth()*scale));p.height=Math.max(1,Math.round(bitmap.getHeight()*scale));image.setLayoutParams(p);image.setImageBitmap(bitmap);
  }
  @Override public int getItemCount(){return rows.size();}
 }

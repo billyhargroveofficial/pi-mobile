@@ -756,8 +756,9 @@ public final class ChatActivity extends AppCompatActivity
         boolean running=sessionStatus==SessionStatus.RUNNING;
         ru.billyhargrove.pimobile.core.ExecutionInfo execution=new ru.billyhargrove.pimobile.core.ExecutionInfo(configuration,running);
         String state=cachedView?"Cached · syncing":!connected?StatusUi.connectionLabel(this,client.state()):sessionStatus==SessionStatus.OFFLINE?"Pi disconnected":running?"Working":"Connected";
-        chatStatusText.setText(state+(execution.model.isEmpty()?"":" · "+execution.model));
-        TextView modelDetails=findViewById(R.id.chatModelDetails);modelDetails.setVisibility(execution.model.isEmpty()?View.GONE:View.VISIBLE);modelDetails.setText(ru.billyhargrove.pimobile.ui.EffortSlider.label(execution.effort)+" effort · "+(execution.available&&"fast".equals(execution.tier)?"⚡ ":"")+execution.tierLabel(running));
+        String details=execution.model.isEmpty()?"":" · "+execution.model+" · "+ru.billyhargrove.pimobile.ui.EffortSlider.label(execution.effort);
+        if(!execution.model.isEmpty()&&execution.available)details+=" · "+("fast".equals(execution.tier)?"⚡ ":"")+execution.tierLabel(running);
+        chatStatusText.setText(state+details);
         findViewById(R.id.effortButton).setContentDescription("Effort: " + (configuration==null?"unknown":ru.billyhargrove.pimobile.ui.EffortSlider.label(configuration.optString("thinkingLevel","off"))));
         chatConnectionDot.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 StatusUi.sessionDotColor(this, sessionStatus, connected && sessionStatus != SessionStatus.OFFLINE)));
