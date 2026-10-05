@@ -53,7 +53,7 @@ public final class CommandBuilder {
                                            Behavior behavior) {
         requireId(sessionId, "sessionId");
         requireId(requestId, "requestId");
-        ImageGuard.validate(images);
+        if(images!=null){if(images.size()>3||ImageGuard.totalBytes(images)>ImageGuard.MAX_TOTAL_BYTES)throw new IllegalArgumentException("Не более 3 вложений, суммарно до 10 МБ");for(ImagePayload p:images){if(p!=null&&p.isFile()){if(p.size()==0||p.fileName().isBlank()||p.fileName().length()>200||p.fileName().matches(".*[\\\\/\\x00-\\x1f].*"))throw new IllegalArgumentException("Некорректный файл");}else ImageGuard.validate(java.util.Collections.singletonList(p));}}
         JSONObject o = new JSONObject();
         try {
             o.put("type", "command");
@@ -62,15 +62,14 @@ public final class CommandBuilder {
             o.put("command", "prompt");
             o.put("text", text == null ? "" : text);
             if (images != null && !images.isEmpty()) {
-                JSONArray array = new JSONArray();
+                JSONArray array = new JSONArray(),files=new JSONArray();
                 for (ImagePayload image : images) {
                     JSONObject item = new JSONObject();
-                    item.put("type", "image");
                     item.put("data", Base64.getEncoder().encodeToString(image.bytes()));
-                    item.put("mimeType", image.mimeType());
-                    array.put(item);
+                    if(image.isFile()){item.put("name",image.fileName());files.put(item);}else{item.put("type", "image");item.put("mimeType", image.mimeType());array.put(item);}
                 }
                 o.put("images", array);
+                if(files.length()>0)o.put("files",files);
             }
             o.put("behavior", (behavior == null ? Behavior.FOLLOW_UP : behavior).wire());
         } catch (JSONException e) {

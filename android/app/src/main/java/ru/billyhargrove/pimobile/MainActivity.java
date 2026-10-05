@@ -67,6 +67,8 @@ public final class MainActivity extends AppCompatActivity
     private boolean catalogRunning;
     private ru.billyhargrove.pimobile.ui.ArchiveSheet archiveSheet;
     private String resumeRequest, resumeSession, resumeTitle;
+    private static final class Action {final Runnable success;final java.util.function.Consumer<String> failure;Action(Runnable s,java.util.function.Consumer<String> f){success=s;failure=f;}}
+    private final java.util.Map<String,Action> actions=new java.util.HashMap<>();
     private final android.os.Handler resumeHandler = new android.os.Handler(android.os.Looper.getMainLooper());
 
     @Override
@@ -109,6 +111,7 @@ public final class MainActivity extends AppCompatActivity
         list.setLayoutManager(new LinearLayoutManager(this));
         adapter = new CatalogAdapter(this);
         list.setAdapter(adapter);
+        ru.billyhargrove.pimobile.ui.SwipeAction.attach(list,"Закрыть",p->{CatalogRow row=adapter.rowAt(p);return row!=null&&row.kind()==CatalogRow.Kind.SESSION&&row.connected();},p->{CatalogRow row=adapter.rowAt(p);if(row!=null)confirmClose(row);});
         ru.billyhargrove.pimobile.ui.ExpressiveMotion.list(list);
         ru.billyhargrove.pimobile.ui.ExpressiveMotion.buttons(findViewById(R.id.mainRoot));
         ru.billyhargrove.pimobile.ui.ExpressiveMotion.buttons(sheet);
@@ -131,7 +134,9 @@ public final class MainActivity extends AppCompatActivity
             archiveSheet = new ru.billyhargrove.pimobile.ui.ArchiveSheet(this, app, (id, title) ->
                 new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                     .setTitle("Возобновить диалог?").setMessage(title + "\n\nОн откроется в Orca на Mac с прежней историей. Сообщение агенту не отправляется.")
-                    .setNegativeButton("Отмена", null).setPositiveButton("Открыть", (d, which) -> resumeSaved(id, title)).show());
+                    .setNegativeButton("Отмена", null).setPositiveButton("Открыть", (d, which) -> resumeSaved(id, title)).show(),(id,success,failure)->{
+                    try{sendAction(id,"delete",new org.json.JSONObject().put("confirm",true),success,failure);}catch(org.json.JSONException e){failure.accept(e.getMessage());}
+                });
             archiveSheet.show();
         });
 
@@ -293,6 +298,7 @@ public final class MainActivity extends AppCompatActivity
 
     @Override
     public void onAck(ru.billyhargrove.pimobile.core.Ack ack) {
+        Action action=actions.remove(ack.requestId());if(action!=null){if(ack.ok())action.success.run();else action.failure.accept(ack.error());return;}
         if (ack.requestId().equals(resumeRequest) && !ack.ok()) { clearResume(); showMessage(ack.error(), true); }
     }
 
@@ -309,7 +315,22 @@ public final class MainActivity extends AppCompatActivity
     }
 
     @Override public void onCommandUncertain(String requestId, String sessionId, String reason) {
+        Action action=actions.remove(requestId);if(action!=null){action.failure.accept("Результат неизвестен. Обнови список перед повтором.");return;}
         if (requestId.equals(resumeRequest)) { clearResume(); showMessage("Результат открытия неизвестен. Проверь вкладки Orca на Mac; автоматического повтора нет.", true); }
+    }
+
+    private void sendAction(String id,String kind,org.json.JSONObject args,Runnable success,java.util.function.Consumer<String> failure){String request=client.readCommand(id,kind,args);if(request==null){failure.accept("Нет подключения к Mac");return;}actions.put(request,new Action(success,failure));}
+
+    private void confirmClose(CatalogRow row){
+        boolean running=row.status()==ru.billyhargrove.pimobile.core.SessionStatus.RUNNING;
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this).setTitle(running?"Прервать Pi и закрыть вкладку?":"Закрыть вкладку Pi?").setMessage(row.title()+"\n\n"+(running?"Текущая задача будет прервана. ":"")+"История останется на диске.").setNegativeButton("Отмена",null).setPositiveButton("Закрыть",(d,w)->{try{sendAction(row.sessionId(),"close",new org.json.JSONObject().put("confirm",true).put("force",running),()->showMessage("Вкладка закрыта",false),error->showMessage(error,true));}catch(org.json.JSONException ignored){}}).show();
+    }
+
+    @Override public void onNewSession(String workspaceId,String title){
+        if(resumeSession!=null)return;
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this).setTitle("Новая сессия").setMessage("Открыть новый Pi в «"+title+"»? Появится настоящая вкладка Orca; промпт не отправляется.").setNegativeButton("Отмена",null).setPositiveButton("Создать",(d,w)->{
+            try{resumeSession=java.util.UUID.randomUUID().toString();resumeTitle="Новый диалог";resumeRequest=client.readCommand(resumeSession,"new",new org.json.JSONObject().put("workspaceId",workspaceId));if(resumeRequest==null){clearResume();showMessage("Нет подключения к Mac",true);return;}findViewById(R.id.historyButton).setEnabled(false);showMessage("Создаём вкладку Pi…",false);resumeHandler.postDelayed(()->{if(resumeSession!=null){clearResume();showMessage("Pi ещё не подключился. Проверь созданную вкладку Orca; повтор автоматически не выполняется.",true);}},45000);}catch(org.json.JSONException ignored){clearResume();}
+        }).show();
     }
 
     private void resumeSaved(String id, String title) {

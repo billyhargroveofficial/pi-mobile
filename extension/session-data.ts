@@ -15,6 +15,8 @@ export function branchData(entries:any[]){
     if(m.role==='user')turnId=m.id;
     m.turnId=turnId;messages.push(m);
   }
+  const lastAssistant=new Map<string,any>();for(const m of messages)if(m.role==='assistant')lastAssistant.set(m.turnId,m);
+  for(const m of messages)if(m.role==='assistant')m.phase=lastAssistant.get(m.turnId)!==m||(Array.isArray(m.content)&&m.content.some((b:any)=>b.type==='toolCall'))?'work':'answer';
   return {messages,turns};
 }
 export function historyPage(entries:any[],before?:string,limit=PAGE_SIZE){

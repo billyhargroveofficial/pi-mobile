@@ -11,3 +11,7 @@ artifacts/
 .env
 __pycache__/
 *.py[cod]
+# Local deployment notes and credentials must never ship.
+docs/in-progress-*.md
+device-token
+*connection*.txt

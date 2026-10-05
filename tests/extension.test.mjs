@@ -11,8 +11,8 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
 test('extension connects only interactive TUI; sends text/images into same runtime, streams and cleans up',async t=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'pim-ext-'));const g=await createGateway({dataDir:dir,port:0,orca:false});process.env.PI_MOBILE_SOCKET=g.socketPath;
  const handlers={},calls=[];let idle=true,aborted=false;
- const pi={on:(n,f)=>handlers[n]=f,registerCommand:()=>{},getSessionName:()=> 'Real live mock',sendUserMessage:(...args)=>calls.push(args)};
- const ctx={mode:'tui',cwd:'/test',model:{provider:'test',id:'model'},isIdle:()=>idle,abort:()=>{aborted=true},sessionManager:{getSessionId:()=> 'mock-session',getBranch:()=>[{type:'message',id:'a',message:{role:'user',content:'from terminal',timestamp:1}}]},ui:{setStatus:()=>{},notify:()=>{}}};
+ const pi={events:{on:()=>{}},getCommands:()=>[],on:(n,f)=>handlers[n]=f,registerCommand:()=>{},getSessionName:()=> 'Real live mock',sendUserMessage:(...args)=>calls.push(args)};
+ const ctx={mode:'tui',cwd:'/test',model:{provider:'test',id:'model'},isIdle:()=>idle,abort:()=>{aborted=true},sessionManager:{getSessionFile:()=>'/test/session.jsonl',getSessionId:()=> 'mock-session',getBranch:()=>[{type:'message',id:'a',message:{role:'user',content:'from terminal',timestamp:1}}]},ui:{setStatus:()=>{},notify:()=>{}}};
  mobile(pi);t.after(async()=>{handlers.session_shutdown({},ctx);delete process.env.PI_MOBILE_SOCKET;await g.close();await rm(dir,{recursive:true,force:true});});
  handlers.session_start({}, {...ctx,mode:'rpc'});await wait(50);assert.equal(g.catalog().sessions.length,0);
  handlers.session_start({},ctx);await wait(100);assert.equal(g.catalog().sessions.length,1);

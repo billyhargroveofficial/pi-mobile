@@ -7,7 +7,7 @@ case "${1:-start}" in
  start)
   if "$ADB" devices | grep -q '^emulator-5554[[:space:]]*device'; then echo 'Emulator already running'; exit 0; fi
   mkdir -p "$ROOT/artifacts"
-  nohup "$SDK/emulator/emulator" -avd PiMobile_API35 -port 5554 -no-snapshot -no-audio -no-boot-anim -gpu swiftshader_indirect -memory 2048 -cores 2 > "$ROOT/artifacts/emulator.log" 2>&1 < /dev/null &
+  nohup "$SDK/emulator/emulator" -avd PiMobile_API35 -port 5554 -no-snapshot -no-audio -no-boot-anim -gpu "${PI_MOBILE_GPU:-auto}" -memory 2048 -cores 2 > "$ROOT/artifacts/emulator.log" 2>&1 < /dev/null &
   echo "Emulator PID $!; control with adb -s emulator-5554"
   ;;
  stop) "$ADB" -s emulator-5554 emu kill ;;

@@ -33,6 +33,17 @@ export class Archive {
     const rows=(await this.entries()).filter(s=>!open.has(s.id)&&(!query||`${s.title} ${s.workspaceName}`.toLowerCase().includes(query.toLowerCase())));
     return {type:'archive',sessions:rows.slice(offset,offset+40).map(({path,...s})=>s),hasMore:offset+40<rows.length,nextOffset:offset+40};
   }
+  async remove(id){
+    const inv=await this.inventory();if(inv.truncated||inv.omittedHostIds?.length)throw Error('Каталог Orca неполный; удаление запрещено');
+    if(this.owners().some(s=>s.id===id)||this.locks.has(id))throw Error('Сначала закрой живую сессию');
+    const s=(await this.entries()).find(s=>s.id===id);if(!s)throw Error('Сессия не найдена в истории');
+    const owners=this.owners();if(owners.some(o=>o.id===id)||this.locks.has(id))throw Error('Сессия уже открыта или запускается');
+    if(inv.terminals.some(t=>t.workspaceId===s.workspaceId&&!owners.some(o=>o.terminalId===t.id)))throw Error('В пространстве есть Pi без моста. Нельзя безопасно удалить его историю');
+    const saved=this.intents[id];if(saved&&(!saved.terminalId||inv.allTerminalIds.includes(saved.terminalId)||Date.now()-saved.startedAt<30000))throw Error('Сессия запускается или результат запуска неизвестен');
+    const fd=fs.openSync(s.path,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);
+    try{const stat=fs.fstatSync(fd);if(!stat.isFile())throw Error('Not a session file');const b=Buffer.alloc(8192),n=fs.readSync(fd,b,0,b.length,0),h=JSON.parse(b.subarray(0,n).toString().split('\n')[0]);if(h.type!=='session'||h.id!==id||h.cwd!==s.cwd)throw Error('Session identity changed');const current=fs.lstatSync(s.path);if(current.isSymbolicLink()||current.ino!==stat.ino||current.dev!==stat.dev)throw Error('Session file changed');fs.unlinkSync(s.path);}finally{fs.closeSync(fd);}
+    this.cache=null;delete this.intents[id];this.save();return {type:'deleted',sessionId:id};
+  }
   resume(id){
     if(this.locks.has(id))return this.locks.get(id);
     const promise=this.open(id).finally(()=>this.locks.delete(id));this.locks.set(id,promise);return promise;

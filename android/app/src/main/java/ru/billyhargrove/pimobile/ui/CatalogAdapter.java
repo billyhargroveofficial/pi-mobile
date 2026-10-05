@@ -24,6 +24,7 @@ public final class CatalogAdapter extends RecyclerView.Adapter<CatalogAdapter.Ho
         void onSessionClick(CatalogRow row);
 
         void onTerminalClick(CatalogRow row);
+        default void onNewSession(String workspaceId,String title) {}
     }
 
     private static final int TYPE_HEADER = 0;
@@ -71,6 +72,7 @@ public final class CatalogAdapter extends RecyclerView.Adapter<CatalogAdapter.Ho
         diff.dispatchUpdatesTo(this);
     }
 
+    public CatalogRow rowAt(int position){return position>=0&&position<rows.size()?rows.get(position):null;}
     public int size() {
         return rows.size();
     }
@@ -107,6 +109,7 @@ public final class CatalogAdapter extends RecyclerView.Adapter<CatalogAdapter.Ho
             count.setText(String.valueOf(row.count()));
             view.setOnClickListener(null);
             view.setClickable(false);
+            View add=view.findViewById(R.id.newSessionButton);add.setVisibility(row.key().startsWith("ws:")?View.VISIBLE:View.GONE);add.setContentDescription("Новая сессия: "+row.title());add.setOnClickListener(v->listener.onNewSession(row.key().substring(3),row.title()));
             view.setContentDescription(row.title());
             return;
         }

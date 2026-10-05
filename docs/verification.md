@@ -1,50 +1,34 @@
-# Проверки — 5 октября 2026
+# Проверки 0.5.1 — 5 октября 2026
 
-## Автотесты и сборка
+## Автоматические проверки текущего релиза
 
-- `npm test`: 5/5 PASS. Авторизация HTTP/WS, Origin, права файлов, image bounds/signatures, адресация одного владельца сессии, dedupe, offline, повторный владелец, socket lock; lifecycle расширения и команды.
-- `./gradlew testDebugUnitTest assembleDebug`: BUILD SUCCESSFUL, 99 тестов, 0 ошибок/падений (13 классов).
-- Финальная APK установлена в Android Emulator через `adb install -r`: Success.
-- Проверены исходники на наличие фактического device-token: совпадений нет.
+- Node: **37/37 PASS** — HTTP/WSS bearer и Origin, routing/dedupe, session ownership, archive resume/new/close/delete, path-prefix, фильтр служебных сессий, навыки/MCP, приватная запись файлов и лимиты, authenticated transcription endpoint.
+- Android JVM: **109/109 PASS** — протокол и состояния, timeline с отдельными progress-блоками и Steer-границами, читаемые аргументы, файлы, тайминг, Markdown и reconciliation.
+- Android instrumentation: **28/28 PASS** на API35 ARM64, 1080×2400; аппаратный GPU, animation scales1. Проверяются реальные finger swipe/tap, effort и промежуточные положения пружины, Queue/Steer picker, клавиатура, одинаковая геометрия скелетонов/истории, «+» пустого пространства, подтверждения close/delete, независимое раскрытие блоков после завершения, прокрутка длинного ответа и сохранение позиции читателя, сохранение pending-текста при повторном входе.
+- `testDebugUnitTest assembleDebug assembleDebugAndroidTest`: BUILD SUCCESSFUL. APK и test APK установлены через ADB.
+- `git diff --check`: PASS. Локальные deployment-notes, токены и артефакты исключены из Git.
 
-## Живой Pi, не заглушка
+UI-тесты используют вымышленные сессии и данные; не отправляют запросы провайдеру и не закрывают пользовательских агентов. Node lifecycle-тесты используют подставной Orca transport и временные настоящие session files для проверки unlink.
 
-Два специально созданных Pi в разных Orca workspaces:
+## Диктовка и хосты
 
-1. `Mobile integration test`, pi-mobile, session `01a10bc4-2e90-7048-ba60-6b820ed8888e`.
-2. `Mobile isolation test`, harness-space, session `01a10bc7-f7ef-7240-97b8-4aaf0a9c4d5d`.
+- Настоящий установленный в Orca sherpa-onnx + Parakeet TDT v3 int8 распознал синтезированную PCM-запись16000Hz mono: `Hello Billy, this is a test of voice dictation.` Результат получен локально, не через mock/облачный STT. Тишина вернула пустой текст.
+- Внутренний speech RPC Orca требует paired mobile client. Relay **не обходит pairing и не выдаёт себя за такой клиент**: для диктовки запускает отдельный временный worker с уже установленной библиотекой и файлами модели. Настройки и активная диктовка Orca не изменяются.
+- Gateway Mac обновлён и перезапущен; существующий живой Pi сам переподключился. `/health` по публичному HTTPS200, `/api/catalog` без токена401.
+- Runtime-код обновлён на Linux-хосте, Node-тесты прошли, `pi-mobile.service` active. Ни один существующий Pi не перезапускался и не получал `/reload` автоматически.
+- Диктовка проверена с моделью на Mac. На Linux требуется настроить постоянные пути к имеющемуся sherpa-onnx/Parakeet; установщик не скачивает их автоматически.
 
-- Через мост отправлена зелёная PNG; настоящий Pi принял её и вызвал read для `artifacts/green-square.png`. Картинка из tool result отобразилась на Android; ответ `Green. MOBILE_IMAGE_OK` пришёл в ту же терминальную сессию. При первой попытке провайдер вернул overload, затем автоматический retry Pi завершился успешно.
-- Через **реальный Android UI** отправлен текст: ответ `ANDROID_UI_OK` виден и в приложении, и в терминале.
-- Через системный Android file picker выбрана PNG из Downloads и отправлена в чат: ответ `Green. ANDROID_IMAGE_OK` виден в обоих интерфейсах; исходная картинка видна в пузыре пользователя.
-- Через **публичный WSS** отправлена команда второй сессии; получен `ISOLATED_SECOND_SESSION_OK`, первая сессия не изменилась. Разные workspace IDs подтверждены.
-- Gateway перезапущен после правок: расширения и Android восстановили соединение. Команды не переотправлялись.
-- Тестовая вкладка второй сессии закрыта; первая оставлена как демонстрация.
+## Что НЕ является проверенным этим прогоном
 
-## HTTPS и сеть
+- Физический Android-микрофон, камера/галерея конкретного производителя и сотовая сеть: не проверены. Получение результата STT проверено настоящим аудио на хосте; мобильное permission/capture/transcribe требует проверки на телефоне.
+- Новые close/delete команды не применялись к пользовательским рабочим сессиям ради проверки. Их безопасность и операции проверены временными файлами/инъекцией транспорта.
+- Effort во время работы требует новой версии загруженного Pi-расширения; обновление файлов/gateway не заменяет безопасный `/reload` после завершения задачи.
+- Это не независимый security-аудит. APK debug-signed, не production/Play Store.
 
-- Caddy получил сертификат Let's Encrypt; `curl https://billyhargrove.ru/health` → HTTP200, `ssl_verify_result=0`.
-- `GET /api/catalog` без токена → HTTP401.
-- Android переключён на `https://billyhargrove.ru`: статус «Подключено», каталог и чат с картинками доступны после перезапуска gateway.
-- Проверка проводилась с Mac и его Android Emulator. Отдельный физический телефон/сотовая сеть пока **не проверены**.
-- На ZTE изменены только правила TCP80/443 на Mac192.168.1.5; закреплён его DHCP-адрес. Старые другие правила не затронуты. Пароль роутера в проект не записан. Chrome Shared после настройки остановлен.
+## Историческая интеграционная проверка (до 0.5.1)
 
-## UI/эмулятор
-
-- AVD `PiMobile_API35`, Android15/API35, ARM64 Pixel7, 1080×2400.
-- Native RecyclerView, не PTY/WebView. Проверены safe insets, composer выше клавиатуры, отдельная строка кнопок, отправка и выбор изображения.
-- Все workspaces остаются видимы, в том числе пустые. Не подключённые терминалы помечены «требуется расширение».
-- Кэш bitmap ограничен12MB через LruCache; HTTP-редиректы отключены.
-- Скриншоты (локальные, gitignored): `artifacts/android-public-https.png`, `artifacts/android-images-https.png`.
-- Эмулятор оставлен открытым на демонстрационном чате. Остановить: `./scripts/emulator.sh stop`.
+Ранее на специально созданных Pi-сессиях были проверены отправка текста и картинки с Android, настоящий tool read/image result, изоляция двух разных workspace/session ID, публичный WSS и reconnect без повторной отправки. Эти проверки не подменяют текущие ограничения выше.
 
 ## Артефакт
 
-`artifacts/Pi-Mobile-debug.apk` — debug, не production-signed релиз.
-
-SHA256:
-```
-009c9041875f8d262e6526d45023e99680418531752deb4db8a2db946bbdb78a
-```
-
-Это функциональная проверка MVP, не полноценный security-аудит и не обещание отсутствия ошибок. Ограничения перечислены в README.
+GitHub prerelease `v0.5.1`: `Pi-Mobile-0.5.1.apk` и `SHA256SUMS.txt`. Контрольная сумма относится к загруженному APK; токенов в APK нет.

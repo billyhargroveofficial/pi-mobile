@@ -25,6 +25,12 @@ public class CommandBuilderTest {
         return new ImagePayload(data, "image/png");
     }
 
+    @Test public void ordinaryFilesUseSeparatePayloadAndRetainNames()throws Exception{
+        JSONObject frame=CommandBuilder.promptCommand("s","r","",Arrays.asList(ImagePayload.file("hello".getBytes(),"notes.txt"),png(8)),null);
+        assertEquals(1,frame.getJSONArray("files").length());assertEquals("notes.txt",frame.getJSONArray("files").getJSONObject(0).getString("name"));assertEquals(1,frame.getJSONArray("images").length());
+    }
+    @Test(expected=IllegalArgumentException.class) public void filePathsCannotTraverse(){CommandBuilder.promptCommand("s","r","",Arrays.asList(ImagePayload.file(new byte[]{1},"../bad")),null);}
+
     @Test
     public void subscribeFrameCarriesOnlySessionId() throws Exception {
         JSONObject frame = CommandBuilder.subscribe("session-1");

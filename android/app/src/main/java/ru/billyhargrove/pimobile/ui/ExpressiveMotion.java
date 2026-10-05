@@ -24,16 +24,38 @@ public final class ExpressiveMotion {
                 .withEndAction(() -> view.animate().setStartDelay(0)).start();
     }
 
+    /** Friction-led panel entrance: separate opacity and spatial springs. */
+    public static void reveal(View view) {
+        if (!enabled()) return;
+        view.setAlpha(0f); view.setScaleX(.94f); view.setScaleY(.94f);
+        view.setTranslationY(14 * view.getResources().getDisplayMetrics().density);
+        view.animate().alpha(1f).setDuration(180).start();
+        SpringAnimation x = new SpringAnimation(view, SpringAnimation.SCALE_X, 1f);
+        SpringAnimation y = new SpringAnimation(view, SpringAnimation.SCALE_Y, 1f);
+        SpringAnimation lift = new SpringAnimation(view, SpringAnimation.TRANSLATION_Y, 0f);
+        for (SpringAnimation animation : new SpringAnimation[]{x, y, lift}) {
+            animation.getSpring().setDampingRatio(.78f).setStiffness(420); animation.start();
+        }
+        view.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            public void onViewAttachedToWindow(View v) {}
+            public void onViewDetachedFromWindow(View v) { x.cancel(); y.cancel(); lift.cancel(); v.animate().cancel(); v.setScaleX(1); v.setScaleY(1); v.setAlpha(1); v.setTranslationY(0); v.removeOnAttachStateChangeListener(this); }
+        });
+    }
+
     /** Does not consume events: click, scrolling, and accessibility remain native. */
     public static void press(View view) {
+        if (view instanceof com.google.android.material.button.MaterialButton) {
+            com.google.android.material.button.MaterialButton button = (com.google.android.material.button.MaterialButton) view;
+            button.setShapeAppearanceModel(button.getShapeAppearanceModel());
+        }
         SpringAnimation x = new SpringAnimation(view, SpringAnimation.SCALE_X);
         SpringAnimation y = new SpringAnimation(view, SpringAnimation.SCALE_Y);
-        x.setSpring(new SpringForce(1).setDampingRatio(.72f).setStiffness(650));
-        y.setSpring(new SpringForce(1).setDampingRatio(.72f).setStiffness(650));
+        x.setSpring(new SpringForce(1).setDampingRatio(.66f).setStiffness(500));
+        y.setSpring(new SpringForce(1).setDampingRatio(.66f).setStiffness(500));
         view.setOnTouchListener((v, event) -> {
             if (!enabled() || !v.isEnabled()) return false;
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                x.animateToFinalPosition(.96f); y.animateToFinalPosition(.96f);
+                x.animateToFinalPosition(.90f); y.animateToFinalPosition(.90f);
             } else if (event.getActionMasked() == MotionEvent.ACTION_UP || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
                 x.animateToFinalPosition(1f); y.animateToFinalPosition(1f);
             }

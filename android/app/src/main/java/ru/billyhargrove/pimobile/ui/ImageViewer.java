@@ -31,7 +31,8 @@ public final class ImageViewer extends AppCompatDialogFragment {
         ZoomImage image=new ZoomImage(requireContext());image.setId(R.id.zoomImage);image.setContentDescription("Изображение. Масштаб: двумя пальцами или двойным нажатием");
         root.addView(image,new FrameLayout.LayoutParams(-1,-1));
         TextView error=new TextView(requireContext());error.setGravity(Gravity.CENTER);error.setTextColor(getResources().getColor(R.color.danger,null));root.addView(error,new FrameLayout.LayoutParams(-1,-1));error.setVisibility(View.GONE);
-        MaterialButton close=new MaterialButton(requireContext(),null,com.google.android.material.R.attr.materialIconButtonFilledTonalStyle);
+        MaterialButton close=(MaterialButton)android.view.LayoutInflater.from(requireContext()).inflate(R.layout.icon_button,root,false);
+        ExpressiveMotion.press(close);
         close.setId(R.id.closeImageButton);close.setIconResource(R.drawable.ic_back);close.setContentDescription("Закрыть изображение");close.setOnClickListener(v->dismiss());
         int size=(int)(48*getResources().getDisplayMetrics().density);FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(size,size,Gravity.TOP|Gravity.START);p.setMargins(size/3,size/3,0,0);root.addView(close,p);
         dialog.setContentView(root);

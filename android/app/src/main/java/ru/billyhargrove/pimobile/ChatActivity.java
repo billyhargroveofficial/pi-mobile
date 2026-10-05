@@ -105,10 +105,12 @@ public final class ChatActivity extends AppCompatActivity
     private RecyclerView messageList;
     private EditText composerInput;
     private Button sendButton;
+    private ru.billyhargrove.pimobile.ui.DictationRecorder dictation;
+    private boolean transcribing;
+    private final ActivityResultLauncher<String> microphonePermission=registerForActivityResult(new ActivityResultContracts.RequestPermission(),granted->{if(granted)startDictation();else toast("Для диктовки нужен доступ к микрофону");});
     private Button attachButton;
     private Button stopButton;
     private Button backButton;
-    private MaterialButton behaviorMenu;
     private String historyRequest,documentRequest,beforeCursor="";
     private boolean hasMoreHistory;
     private long historyEpoch;
@@ -127,7 +129,10 @@ public final class ChatActivity extends AppCompatActivity
     private String sessionTitle = "";
     private boolean readOnly;
     private ru.billyhargrove.pimobile.ui.ModelSettingsSheet modelSheet;
-    private String configurationRequest;
+    private ru.billyhargrove.pimobile.ui.EffortPopup effortPopup;
+    private ru.billyhargrove.pimobile.ui.DeliverySheet deliverySheet;
+    private String configurationRequest, controlRequest, controlDraft;
+    private String controlKind;
     private org.json.JSONObject configuration;
     private SessionStatus sessionStatus = SessionStatus.UNKNOWN;
 
@@ -135,6 +140,7 @@ public final class ChatActivity extends AppCompatActivity
     private final TranscriptStore store = new TranscriptStore();
     private boolean firstRenderDone;
     private final List<ChatMessage> localMessages = new ArrayList<>();
+    private ru.billyhargrove.pimobile.store.PendingMessages pendingMessages;
     private final List<Attachment> attachments = new ArrayList<>();
     private final Map<String, Draft> drafts = new LinkedHashMap<>();
     private final Set<String> abortRequests = new HashSet<>();
@@ -163,14 +169,15 @@ public final class ChatActivity extends AppCompatActivity
         sessionId = intent.getStringExtra(EXTRA_SESSION_ID) == null ? "" : intent.getStringExtra(EXTRA_SESSION_ID);
         sessionTitle = intent.getStringExtra(EXTRA_TITLE) == null ? "" : intent.getStringExtra(EXTRA_TITLE);
         readOnly = intent.getBooleanExtra(EXTRA_READ_ONLY, false);
+        pendingMessages=new ru.billyhargrove.pimobile.store.PendingMessages(this,settings.baseUrl(),sessionId);localMessages.addAll(pendingMessages.load());
 
+        int background=getColor(R.color.bg);findViewById(R.id.messageTopFade).setBackground(new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,new int[]{background,background&0x00ffffff}));
         messageList = findViewById(R.id.messageList);
         composerInput = findViewById(R.id.composerInput);
         sendButton = findViewById(R.id.sendButton);
         attachButton = findViewById(R.id.attachImageButton);
         stopButton = findViewById(R.id.stopButton);
         backButton = findViewById(R.id.backButton);
-        behaviorMenu = findViewById(R.id.behaviorMenuButton);
         attachmentStrip = findViewById(R.id.attachmentStrip);
         attachmentsScroll = findViewById(R.id.attachmentsScroll);
         attachmentsTitle = findViewById(R.id.attachmentsTitle);
@@ -187,22 +194,20 @@ public final class ChatActivity extends AppCompatActivity
         messageList.setLayoutManager(layoutManager);
         adapter = new MessageAdapter(app.mediaLoader(), this, this);
         messageList.setAdapter(adapter);
-        ru.billyhargrove.pimobile.ui.ExpressiveMotion.list(messageList);
+        // Live diffs must not animate row relocation or steal the reading anchor.
+        messageList.setItemAnimator(null);
 
-        updateBehavior();
-        behaviorMenu.setOnClickListener(v -> {
-            androidx.appcompat.widget.PopupMenu menu=new androidx.appcompat.widget.PopupMenu(this,behaviorMenu);
-            menu.getMenu().add(0,1,0,"В очередь после задачи");menu.getMenu().add(0,2,1,"Вмешаться в текущую задачу");
-            menu.setOnMenuItemClickListener(item->{settings.setBehavior(item.getItemId()==2?CommandBuilder.Behavior.STEER:CommandBuilder.Behavior.FOLLOW_UP);updateBehavior();return true;});menu.show();
-        });
-        findViewById(R.id.historyProgress).setOnClickListener(v->loadOlder());
-        messageList.addOnScrollListener(new RecyclerView.OnScrollListener(){@Override public void onScrolled(RecyclerView list,int dx,int dy){if(dy<0&&((LinearLayoutManager)list.getLayoutManager()).findFirstVisibleItemPosition()<3)loadOlder();}});
+        new ru.billyhargrove.pimobile.ui.CompactComposer(findViewById(R.id.composerEditor), composerInput);
+        new ru.billyhargrove.pimobile.ui.SkillSuggestions(findViewById(R.id.skillSuggestions),composerInput,()->configuration);
+        messageList.addOnScrollListener(new RecyclerView.OnScrollListener(){@Override public void onScrollStateChanged(RecyclerView list,int state){if(state==RecyclerView.SCROLL_STATE_DRAGGING){scrollGeneration++;followTail=false;}if(state==RecyclerView.SCROLL_STATE_IDLE)followTail=isNearBottom();}@Override public void onScrolled(RecyclerView list,int dx,int dy){if(dy<0&&list.getScrollState()!=RecyclerView.SCROLL_STATE_IDLE&&((LinearLayoutManager)list.getLayoutManager()).findFirstVisibleItemPosition()<3)loadOlder();}});
 
         backButton.setOnClickListener(v -> finishAfterTransition());
-        sendButton.setOnClickListener(v -> onSendClicked());
-        attachButton.setOnClickListener(v -> imagePicker.launch(new String[]{"image/*"}));
+        sendButton.setOnClickListener(v -> {if(composerInput.getText().toString().trim().isEmpty()&&attachments.isEmpty())requestDictation();else onSendClicked();});
+        composerInput.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){updateSendIcon();}public void afterTextChanged(android.text.Editable e){}});updateSendIcon();
+        attachButton.setOnClickListener(v -> imagePicker.launch(new String[]{"*/*"}));
         stopButton.setOnClickListener(v -> onStopClicked());
-        findViewById(R.id.modelButton).setOnClickListener(v -> openModelSettings());
+        findViewById(R.id.effortButton).setOnClickListener(v -> openQuickEffort(v));
+        findViewById(R.id.deliveryButton).setOnClickListener(v->{if(deliverySheet!=null)deliverySheet.dismiss();deliverySheet=new ru.billyhargrove.pimobile.ui.DeliverySheet(this,settings.behavior(),mode->{settings.setBehavior(mode);updateDeliveryIcon();});deliverySheet.show();});updateDeliveryIcon();
 
         if (readOnly) {
             readOnlyBanner.setVisibility(View.VISIBLE);
@@ -240,11 +245,14 @@ public final class ChatActivity extends AppCompatActivity
     @Override
     protected void onStop() {
         super.onStop();
+        if(dictation!=null){dictation.cancel();dictation=null;}
         client.clearListener(this);
     }
 
     @Override protected void onDestroy() {
+        if (deliverySheet != null) deliverySheet.dismiss();
         if (modelSheet != null) modelSheet.dismiss();
+        if (effortPopup != null) effortPopup.dismiss();
         if(documentPreview!=null)documentPreview.dismiss();
         if(adapter!=null)adapter.close();
         super.onDestroy();
@@ -256,11 +264,29 @@ public final class ChatActivity extends AppCompatActivity
         updateStatusUi();
     }
 
+    private void openQuickEffort(View anchor) {
+        if (configurationRequest != null) return;
+        if (configuration == null || client.state() != ConnectionState.CONNECTED) { toast("Сначала подключись к Pi"); return; }
+        org.json.JSONArray models = configuration.optJSONArray("models");
+        org.json.JSONObject selected = null;
+        if (models != null) for (int i = 0; i < models.length(); i++) { org.json.JSONObject m = models.optJSONObject(i); if (m != null && (m.optString("provider") + "/" + m.optString("id")).equals(configuration.optString("model"))) selected = m; }
+        if (selected == null) { openModelSettings(); return; }
+        if (effortPopup != null) effortPopup.dismiss();
+        effortPopup = new ru.billyhargrove.pimobile.ui.EffortPopup(anchor, selected, configuration.optString("thinkingLevel", "off"), !readOnly, this::openModelSettings, value -> {
+            if (configurationRequest != null) { toast("Предыдущее изменение ещё подтверждается"); return; }
+            configurationRequest = client.configure(sessionId, null, null, value);
+            if (configurationRequest == null) toast("Нет соединения с Pi. Изменение не отправлено");
+        });
+    }
+
     private void openModelSettings() {
+        if (configurationRequest != null) return;
+        if (effortPopup != null) effortPopup.dismiss();
         if(configuration == null || configuration.optJSONArray("models") == null) {
             toast("Выполни /reload в этом Pi, когда он освободится, чтобы загрузить модели и effort.");return;
         }
         if(modelSheet != null)modelSheet.dismiss();
+        ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(composerInput.getWindowToken(),0);
         modelSheet=new ru.billyhargrove.pimobile.ui.ModelSettingsSheet(this,configuration,client.state()==ConnectionState.CONNECTED && sessionStatus==SessionStatus.IDLE && !readOnly,(provider,model,effort)->{
             if(sessionStatus!=SessionStatus.IDLE){modelSheet.failed("Дождись завершения задачи");return;}
             configurationRequest=client.configure(sessionId,provider,model,effort);
@@ -269,20 +295,31 @@ public final class ChatActivity extends AppCompatActivity
         modelSheet.show();
     }
 
-    private void updateBehavior(){behaviorMenu.setText(settings.behavior()==CommandBuilder.Behavior.STEER?"Вмешаться ▾":"Очередь ▾");}
-
     @Override public void onTimelineMeta(org.json.JSONObject frame){
         if(!sessionId.equals(frame.optString("sessionId")))return;
         adapter.metadata(frame);
+        ((ru.billyhargrove.pimobile.ui.WorkingBadge)findViewById(R.id.workingBadge)).update(frame);
         if("snapshot".equals(frame.optString("type"))){
             historyEpoch=frame.optLong("epoch");historyRequest=null;
             org.json.JSONObject h=frame.optJSONObject("history");hasMoreHistory=h!=null&&h.optBoolean("hasMore");beforeCursor=h==null?"":h.optString("before","");historyButton();
         }
     }
-    private void historyButton(){Button b=findViewById(R.id.historyProgress);b.setVisibility(hasMoreHistory?View.VISIBLE:View.GONE);b.setEnabled(historyRequest==null);b.setText(historyRequest==null?"↑ Предыдущие сообщения":"Загружаю…");}
+    private void historyButton(){ /* Pagination is scroll-driven, without a separate row. */ }
+    private void ensureUserContext(){
+        // A long tool run can evict ALL user messages from the 40-source-message tail.
+        // Fetch preceding pages until the current prompt is present; never move the viewport up.
+        if(hasMoreHistory && store.transcript().stream().noneMatch(m->m.role()==ChatMessage.Role.USER))loadOlder();
+    }
     private void loadOlder(){if(!hasMoreHistory||historyRequest!=null||beforeCursor.isEmpty())return;try{historyRequest=client.readCommand(sessionId,"history",new org.json.JSONObject().put("before",beforeCursor).put("limit",40));historyButton();if(historyRequest==null)toast("Для загрузки истории нужен подключённый Pi");}catch(org.json.JSONException ignored){}}
     @Override public void onData(String request,String id,org.json.JSONObject data){
         if(!sessionId.equals(id))return;
+        if("mcp".equals(data.optString("type"))&&request.equals(controlRequest)){
+            org.json.JSONArray servers=data.optJSONArray("servers");StringBuilder text=new StringBuilder();
+            if(servers!=null)for(int i=0;i<servers.length();i++){org.json.JSONObject s=servers.optJSONObject(i);if(s==null)continue;String status=s.optString("status");String label="connected".equals(status)?"подключён":"cached".equals(status)?"кэш, не подключён":"not-connected".equals(status)?"не подключён":"needs-auth".equals(status)?"нужен вход":"disabled".equals(status)?"отключён":"blocked".equals(status)?"заблокирован":"ошибка";text.append(s.optString("name")).append(" — ").append(label).append(" · ").append(s.optInt("toolCount")).append(" инструментов\n\n");}
+            if(text.length()==0)text.append("Нет MCP-серверов в текущем Pi.");
+            long observed=data.optLong("observedAt");if(observed>0)text.append("Состояние сообщено Pi: ").append(android.text.format.DateFormat.getTimeFormat(this).format(new java.util.Date(observed)));
+            new com.google.android.material.dialog.MaterialAlertDialogBuilder(this).setTitle("MCP текущего Pi").setMessage(text.toString()).setPositiveButton("Готово",null).show();return;
+        }
         if("history".equals(data.optString("type"))&&request.equals(historyRequest)){
             if(data.optLong("epoch")!=historyEpoch){historyRequest=null;historyButton();return;}
             LinearLayoutManager lm=(LinearLayoutManager)messageList.getLayoutManager();int first=lm.findFirstVisibleItemPosition();String anchor=adapter.keyAt(first);View top=lm.findViewByPosition(first);int offset=top==null?0:top.getTop()-messageList.getPaddingTop();
@@ -304,13 +341,37 @@ public final class ChatActivity extends AppCompatActivity
         try{documentRequest=client.readCommand(sessionId,"document",new org.json.JSONObject().put("path",path));if(documentRequest==null)toast("Для предпросмотра нужен подключённый Pi");}catch(org.json.JSONException ignored){}
     }
 
+    private void updateDeliveryIcon(){MaterialButton button=findViewById(R.id.deliveryButton);boolean steer=settings.behavior()==CommandBuilder.Behavior.STEER;button.setIconResource(steer?R.drawable.ic_steer:R.drawable.ic_queue);button.setContentDescription(steer?"Режим отправки: Steer, вмешаться":"Режим отправки: Queue, в очередь");}
+    private boolean hasCapability(String name){org.json.JSONArray caps=configuration==null?null:configuration.optJSONArray("capabilities");if(caps!=null)for(int i=0;i<caps.length();i++)if(name.equals(caps.optString(i)))return true;return false;}
+    private boolean handleControl(String text){
+        String kind=text.equals("/mcp")?"mcp":text.equals("/name")||text.startsWith("/name ")?"name":null;
+        if(kind==null)return false;
+        if(!attachments.isEmpty()){toast("Команда не отправляет вложения — сначала убери их");return true;}
+        if(controlRequest!=null){toast("Предыдущая команда ещё выполняется");return true;}
+        if(!hasCapability(kind)){toast("Обнови мост в текущем Pi после завершения задачи");return true;}
+        try{org.json.JSONObject args=new org.json.JSONObject();if("name".equals(kind)){String name=text.substring(5).trim();if(name.isEmpty()){toast("Напиши /name Новое имя");return true;}args.put("name",name);}
+            controlRequest=client.readCommand(sessionId,kind,args);if(controlRequest==null)toast("Нет подключения к текущему Pi");else{controlKind=kind;controlDraft=text;}
+        }catch(org.json.JSONException ignored){}return true;
+    }
+
     // -------------------------------------------------------------- commands
+
+    private void updateSendIcon(){if(sendButton==null)return;boolean voice=composerInput.getText().toString().trim().isEmpty()&&attachments.isEmpty();((com.google.android.material.button.MaterialButton)sendButton).setIconResource(voice?R.drawable.ic_mic:R.drawable.ic_send);sendButton.setContentDescription(transcribing?"Распознавание речи…":voice?"Диктовка":"Отправить");}
+    private void requestDictation(){if(transcribing){toast("Предыдущая запись ещё распознаётся");return;}if(androidx.core.content.ContextCompat.checkSelfPermission(this,android.Manifest.permission.RECORD_AUDIO)!=android.content.pm.PackageManager.PERMISSION_GRANTED)microphonePermission.launch(android.Manifest.permission.RECORD_AUDIO);else startDictation();}
+    private void startDictation(){
+        if(isFinishing()||isDestroyed())return;
+        dictation=new ru.billyhargrove.pimobile.ui.DictationRecorder(this,bytes->{dictation=null;transcribing=true;updateSendIcon();toast("Распознаю на компьютере…");String url=settings.baseUrl(),token=settings.token();
+            AppExecutors.io().execute(()->{String text=null,error=null;try{text=app.api().transcribe(url,token,bytes);}catch(Exception e){error=e.getMessage();}String result=text,failure=error;AppExecutors.main(()->{transcribing=false;if(isFinishing()||isDestroyed())return;updateSendIcon();if(failure!=null){toast(failure);return;}if(result==null||result.isBlank()){toast("Речь не распознана");return;}int at=Math.max(0,composerInput.getSelectionStart());composerInput.getText().insert(at,(at>0?" ":"")+result);});});
+        },this::toast);
+    }
 
     private void onSendClicked() {
         if (readOnly) {
             return;
         }
         String text = composerInput.getText().toString();
+        if(handleControl(text.trim()))return;
+        if(text.startsWith("$")&&!hasCapability("skills")){toast("Для навыков нужно обновить мост в этом Pi, когда он освободится");return;}
         List<ImagePayload> payloads = new ArrayList<>();
         List<Bitmap> thumbs = new ArrayList<>();
         List<String> mimeTypes = new ArrayList<>();
@@ -332,7 +393,7 @@ public final class ChatActivity extends AppCompatActivity
             return;
         }
         drafts.put(requestId, new Draft(text, payloads, thumbs, mimeTypes, behavior));
-        localMessages.add(ChatMessage.local(requestId, text, localRefs(mimeTypes), ChatMessage.LocalState.SENDING));
+        localMessages.add(ChatMessage.local(requestId, attachmentText(text,payloads), localRefs(mimeTypes), ChatMessage.LocalState.SENDING));
         sendButton.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM);
         composerInput.setText("");
         clearAttachments();
@@ -357,7 +418,7 @@ public final class ChatActivity extends AppCompatActivity
     public void onRetry(ChatMessage message) {
         Draft draft = drafts.get(message.requestId());
         if (draft == null) {
-            return;
+            toast("Восстанови текст в поле ввода; вложения после повторного входа нужно выбрать заново. Перед повтором проверь, не принят ли запрос.");return;
         }
         toast(getString(R.string.retry_warning));
         String requestId = client.sendPrompt(sessionId, draft.text, draft.payloads, draft.behavior);
@@ -366,7 +427,7 @@ public final class ChatActivity extends AppCompatActivity
             return;
         }
         drafts.put(requestId, new Draft(draft.text, draft.payloads, draft.thumbs, draft.mimeTypes, draft.behavior));
-        localMessages.add(ChatMessage.local(requestId, draft.text, localRefs(draft.mimeTypes),
+        localMessages.add(ChatMessage.local(requestId, attachmentText(draft.text,draft.payloads), localRefs(draft.mimeTypes),
                 ChatMessage.LocalState.SENDING));
         render();
         scrollToBottom(true);
@@ -376,7 +437,7 @@ public final class ChatActivity extends AppCompatActivity
     public void onRestore(ChatMessage message) {
         Draft draft = drafts.remove(message.requestId());
         if (draft == null) {
-            return;
+            if(composerInput.getText().length()==0)composerInput.setText(message.text());else{toast("Сначала освободи поле ввода");return;}localMessages.remove(message);render();toast("Перед повтором проверь чат. Вложения нужно выбрать заново.");return;
         }
         if (composerInput.getText().length() == 0) {
             composerInput.setText(draft.text);
@@ -418,9 +479,9 @@ public final class ChatActivity extends AppCompatActivity
             long budget = ImageGuard.remainingBytes(payloadsOf(attachments));
             for (Uri uri : selected) {
                 try {
-                    ImagePayload payload = ImagePreparer.prepare(getContentResolver(), uri, budget);
+                    ImagePayload payload = ru.billyhargrove.pimobile.net.AttachmentPreparer.prepare(getContentResolver(), uri, budget);
                     budget -= payload.size();
-                    Bitmap thumb = ImagePreparer.thumbnail(payload.bytes(), 320);
+                    Bitmap thumb = payload.isFile()?null:ImagePreparer.thumbnail(payload.bytes(), 320);
                     staged.add(new Attachment(payload, thumb, ImagePreparer.displayName(getContentResolver(), uri)));
                 } catch (Exception e) {
                     error = e.getMessage() == null ? "не удалось прочитать файл" : e.getMessage();
@@ -448,6 +509,7 @@ public final class ChatActivity extends AppCompatActivity
     }
 
     private void renderAttachments() {
+        updateSendIcon();
         attachmentStrip.removeAllViews();
         if (attachments.isEmpty()) {
             attachmentsScroll.setVisibility(View.GONE);
@@ -455,20 +517,13 @@ public final class ChatActivity extends AppCompatActivity
             return;
         }
         attachmentsScroll.setVisibility(View.VISIBLE);
-        attachmentsTitle.setVisibility(View.VISIBLE);
-        attachmentsTitle.setText(getString(R.string.attachments_title, attachments.size()));
+        attachmentsTitle.setVisibility(View.GONE);
         for (int i = 0; i < attachments.size(); i++) {
             final int index = i;
             Attachment attachment = attachments.get(i);
-            View item = getLayoutInflater().inflate(R.layout.item_attachment, attachmentStrip, false);
-            ImageView thumb = item.findViewById(R.id.attachmentThumb);
-            Button remove = item.findViewById(R.id.attachmentRemove);
-            if (attachment.thumbnail() != null) {
-                thumb.setImageBitmap(attachment.thumbnail());
-            }
-            thumb.setContentDescription(getString(R.string.cd_attachment_thumb, index + 1));
-            remove.setContentDescription(getString(R.string.cd_attachment_remove, index + 1));
-            remove.setOnClickListener(v -> {
+            com.google.android.material.chip.Chip item=new com.google.android.material.chip.Chip(this);
+            item.setText(attachment.payload().isFile()?"📎 "+attachment.payload().fileName():"Изображение "+(index+1));item.setEnsureMinTouchTargetSize(true);item.setCloseIconVisible(true);item.setCloseIconContentDescription(getString(R.string.cd_attachment_remove,index+1));item.setMaxWidth(Math.round(260*getResources().getDisplayMetrics().density));item.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            item.setOnCloseIconClickListener(v -> {
                 if (index < attachments.size()) {
                     attachments.remove(index);
                     renderAttachments();
@@ -538,12 +593,14 @@ public final class ChatActivity extends AppCompatActivity
 
     @Override
     public void onAck(Ack ack) {
-        if(ack.requestId().equals(historyRequest)){historyRequest=null;historyButton();if(!ack.ok())toast(errorText(ack));return;}
+        if(ack.requestId().equals(controlRequest)){controlRequest=null;if(ack.ok()){if(composerInput.getText().toString().trim().equals(controlDraft))composerInput.setText("");if("name".equals(controlKind))toast("Имя сессии изменено");}else toast(errorText(ack));controlDraft=null;return;}
+        if(ack.requestId().equals(historyRequest)){historyRequest=null;historyButton();if(!ack.ok())toast(errorText(ack));else ensureUserContext();return;}
         if(ack.requestId().equals(documentRequest)){documentRequest=null;if(!ack.ok())toast(errorText(ack));return;}
         if (ack.requestId().equals(configurationRequest)) {
             configurationRequest=null;
             if(ack.ok()){if(modelSheet!=null)modelSheet.dismiss();toast("Настройки текущего Pi изменены");}
-            else if(modelSheet!=null)modelSheet.failed(errorText(ack));
+            else if(modelSheet!=null && modelSheet.isShowing())modelSheet.failed(errorText(ack));
+            else toast(errorText(ack));
             return;
         }
         if (abortRequests.remove(ack.requestId())) {
@@ -553,9 +610,6 @@ public final class ChatActivity extends AppCompatActivity
             return;
         }
         Draft draft = drafts.get(ack.requestId());
-        if (draft == null) {
-            return;
-        }
         int index = indexOfLocal(ack.requestId());
         if (index < 0) {
             return;
@@ -566,7 +620,7 @@ public final class ChatActivity extends AppCompatActivity
         } else {
             localMessages.set(index, message.withLocalState(ChatMessage.LocalState.FAILED));
             toast(getString(R.string.ack_failed_format, errorText(ack)));
-            if (composerInput.getText().length() == 0) {
+            if (draft!=null && composerInput.getText().length() == 0) {
                 composerInput.setText(draft.text);
                 composerInput.setSelection(composerInput.getText().length());
             }
@@ -576,11 +630,13 @@ public final class ChatActivity extends AppCompatActivity
 
     @Override
     public void onCommandUncertain(String requestId, String sessionId, String reason) {
+        if(requestId.equals(controlRequest)){controlRequest=null;toast("Результат команды неизвестен: "+reason);return;}
         if(requestId.equals(historyRequest)){historyRequest=null;historyButton();toast("История не загружена: "+reason);return;}
         if(requestId.equals(documentRequest)){documentRequest=null;toast("Файл не загружен: "+reason);return;}
         if(requestId.equals(configurationRequest)) {
             configurationRequest=null;
-            if(modelSheet!=null)modelSheet.failed("Результат неизвестен. Проверь модель в терминале перед повтором.");
+            if(modelSheet!=null && modelSheet.isShowing())modelSheet.failed("Результат неизвестен. Проверь модель в терминале перед повтором.");
+            else toast("Результат изменения effort неизвестен. Проверь Pi перед повтором.");
             return;
         }
         if (abortRequests.remove(requestId)) {
@@ -618,6 +674,7 @@ public final class ChatActivity extends AppCompatActivity
         sessionStatus = snapshot.status();
         truncatedBanner.setVisibility(snapshot.truncated() ? View.VISIBLE : View.GONE);
         render(store.replaceAll(snapshot.messages()));
+        ensureUserContext();
         updateStatusUi();
     }
 
@@ -647,7 +704,11 @@ public final class ChatActivity extends AppCompatActivity
     }
 
     private void render() {
-        adapter.submit(TranscriptReconciler.merge(store.transcript(), localMessages));
+        List<ChatMessage> merged=TranscriptReconciler.merge(store.transcript(), localMessages);
+        Set<String> visibleLocal=new HashSet<>();for(ChatMessage m:merged)if(m.isLocal())visibleLocal.add(m.requestId());
+        localMessages.removeIf(m->m.localState()!=ChatMessage.LocalState.SENDING&&!visibleLocal.contains(m.requestId()));
+        if(pendingMessages!=null)pendingMessages.save(localMessages);
+        adapter.submit(merged);
         chatEmptyText.setVisibility(adapter.size() == 0 ? View.VISIBLE : View.GONE);
         pruneDrafts();
     }
@@ -657,15 +718,15 @@ public final class ChatActivity extends AppCompatActivity
      * changed (a new message or the streaming message growing) and the user is
      * already at the bottom.
      */
+    private boolean followTail=true;
+    private int scrollGeneration;
     private void render(TranscriptStore.ChangeSet changeSet) {
         render();
         boolean firstLoad = !firstRenderDone && adapter.size() > 0;
-        if (firstLoad || (changeSet != null && changeSet.tailTouched())) {
-            scrollToBottom(firstLoad);
-        }
-        if (firstLoad) {
-            firstRenderDone = true;
-        }
+        if(firstLoad || (followTail && changeSet!=null && changeSet.tailTouched()))scrollToBottom(firstLoad);
+        if(firstLoad)firstRenderDone=true;
+        // RecyclerView already preserves the visible anchor through DiffUtil.
+        // Reapplying an old top offset here races pending tail scrolls and IME layout.
     }
 
     /** A draft is only needed while its local bubble is still on screen. */
@@ -683,15 +744,13 @@ public final class ChatActivity extends AppCompatActivity
         if(model.contains("/"))model=model.substring(model.lastIndexOf('/')+1);
         String detail=model.isEmpty()?"На связи":model+" · "+configuration.optString("thinkingLevel","off");
         chatStatusText.setText(!connected ? StatusUi.connectionLabel(this, client.state()) : sessionStatus == SessionStatus.OFFLINE ? "Pi отключён · история доступна" : sessionStatus==SessionStatus.RUNNING?"Работает":"Подключено");
-        ((Button)findViewById(R.id.modelButton)).setText(detail+" ▾");
-        findViewById(R.id.modelButton).setContentDescription("Модель и effort: " + detail);
+        findViewById(R.id.effortButton).setContentDescription("Effort: " + (configuration==null?"неизвестен":ru.billyhargrove.pimobile.ui.EffortSlider.label(configuration.optString("thinkingLevel","off"))));
         chatConnectionDot.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 StatusUi.sessionDotColor(this, sessionStatus, connected && sessionStatus != SessionStatus.OFFLINE)));
         boolean online = client.state() == ConnectionState.CONNECTED && sessionStatus != SessionStatus.OFFLINE && !readOnly;
         stopButton.setVisibility(sessionStatus == SessionStatus.RUNNING ? View.VISIBLE : View.GONE);
         stopButton.setEnabled(online);
         sendButton.setEnabled(online);
-        findViewById(R.id.thinkingStrip).setVisibility(online && sessionStatus == SessionStatus.RUNNING ? View.VISIBLE : View.GONE);
     }
 
     private int indexOfLocal(String requestId) {
@@ -703,10 +762,11 @@ public final class ChatActivity extends AppCompatActivity
         return -1;
     }
 
+    private static String attachmentText(String text,List<ImagePayload> payloads){StringBuilder result=new StringBuilder(text);for(ImagePayload p:payloads)if(p.isFile()){if(result.length()>0)result.append('\n');result.append("📎 ").append(p.fileName());}return result.toString();}
     private static List<ImageRef> localRefs(List<String> mimeTypes) {
         List<ImageRef> refs = new ArrayList<>();
         for (int i = 0; i < mimeTypes.size(); i++) {
-            refs.add(MessageAdapter.localRef(i, mimeTypes.get(i)));
+            if(ImageGuard.isAllowedMimeType(mimeTypes.get(i)))refs.add(MessageAdapter.localRef(i, mimeTypes.get(i)));
         }
         return refs;
     }
@@ -716,21 +776,26 @@ public final class ChatActivity extends AppCompatActivity
         if (layoutManager == null || adapter.size() == 0) {
             return true;
         }
-        return layoutManager.findLastVisibleItemPosition() >= adapter.size() - 3;
+        return !messageList.canScrollVertically(1);
     }
 
     private void scrollToBottom(boolean force) {
-        if (!force && !isNearBottom()) {
-            return;
-        }
-        final int last = adapter.size() - 1;
-        if (last < 0) {
-            return;
-        }
-        messageList.post(() -> {
-            if (force || !ru.billyhargrove.pimobile.ui.ExpressiveMotion.enabled()) messageList.scrollToPosition(last);
-            else messageList.smoothScrollToPosition(last);
-        });
+        if(force)followTail=true;
+        final int version=++scrollGeneration;
+        messageList.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener(){
+            private boolean requested;
+            public boolean onPreDraw(){
+                if(version!=scrollGeneration||!followTail||messageList.getScrollState()==RecyclerView.SCROLL_STATE_DRAGGING){messageList.getViewTreeObserver().removeOnPreDrawListener(this);return true;}
+                int last=adapter.size()-1;LinearLayoutManager lm=(LinearLayoutManager)messageList.getLayoutManager();
+                if(last>=0&&lm.findViewByPosition(last)==null&&!requested){requested=true;lm.scrollToPositionWithOffset(last,0);return true;}
+                messageList.getViewTreeObserver().removeOnPreDrawListener(this);alignTail(version);return true;
+            }
+        });messageList.invalidate();
+    }
+    private void alignTail(int version){
+        if(version!=scrollGeneration||!followTail||messageList.getScrollState()==RecyclerView.SCROLL_STATE_DRAGGING)return;
+        LinearLayoutManager lm=(LinearLayoutManager)messageList.getLayoutManager();View tail=lm.findViewByPosition(adapter.size()-1);
+        if(tail!=null)messageList.scrollBy(0,Math.max(0,lm.getDecoratedBottom(tail)-(messageList.getHeight()-messageList.getPaddingBottom())));
     }
 
     private void toast(String text) {

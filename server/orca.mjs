@@ -1,4 +1,5 @@
 import {execFile} from 'node:child_process';
+import fs from 'node:fs';
 import {promisify} from 'node:util';
 const exec=promisify(execFile);
 export async function orcaCommand(args){
@@ -16,6 +17,11 @@ export function visibleTerminals(t){
   return t.terminals.filter(t=>visible.has(t.handle)&&!t.orphaned&&t.connected===true);
 }
 export async function readOrca(){
+  // On Linux, the AppImage CLI is expensive to boot. Do not launch it repeatedly
+  // while the desktop runtime is absent or has crashed.
+  if(process.env.PI_MOBILE_ORCA_RUNTIME_FILE){
+    let pid;try{pid=JSON.parse(fs.readFileSync(process.env.PI_MOBILE_ORCA_RUNTIME_FILE,'utf8')).pid;if(!Number.isInteger(pid)||pid<1)throw Error();process.kill(pid,0);}catch{throw Error('Orca desktop is not running');}
+  }
   const [w,t]=await Promise.all([orcaCommand(['worktree','list','--limit','1000']),orcaCommand(['terminal','list','--include-visual-layouts','--limit','1000'])]);
   return {workspaces:w.worktrees.filter(w=>!w.isArchived).map(w=>({id:w.id,name:w.displayName||w.path,path:w.path,hostId:w.hostId})),
     terminals:visibleTerminals(t).filter(t=>t.agentIdentity==='pi').map(t=>({id:t.handle,title:t.title,workspaceId:t.worktreeId,path:t.worktreePath,agent:'pi',connected:false,hostId:t.executionHostId})),

@@ -40,7 +40,7 @@ test('gateway exposes only open tabs and authenticated paged archive',async t=>{
  const g=await createGateway({dataDir:f.dir,port:0,orcaReader:async()=>f.inv,archiveList:f.opts.list,archiveLaunch:f.opts.launch});t.after(()=>g.close());
  const base='http://127.0.0.1:'+g.port,headers={Authorization:'Bearer '+g.token};assert.equal((await fetch(base+'/api/archive')).status,401);
  const p=await(await fetch(base+'/api/archive',{headers})).json();assert.equal(p.sessions.length,1);assert.equal(p.sessions[0].path,undefined);
- assert.equal(g.catalog().workspaces.length,1);assert.equal(g.catalog().terminals.length,1);
+ assert.equal(g.catalog().workspaces.length,2,'empty workspaces remain available for the new-session button');assert.equal(g.catalog().terminals.length,1);
 });
 
 test('catalog drops old session on same terminal and closed-tab owners; WS resume deduplicates',async t=>{

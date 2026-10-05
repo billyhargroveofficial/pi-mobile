@@ -6,6 +6,9 @@ import crypto from 'node:crypto';
 import {WebSocketServer,WebSocket} from 'ws';
 import {readOrca} from './orca.mjs';
 import {Archive} from './archive.mjs';
+import {Lifecycle} from './lifecycle.mjs';
+import {decodeFile,attachFiles,attachmentDisplay} from './attachments.mjs';
+import {audioBytes,transcribe} from './speech.mjs';
 
 export const MAX_IMAGE=10*1024*1024;
 const MAX_FRAME=32*1024*1024;
@@ -21,7 +24,19 @@ export function decodeImage(image){
   return b;
 }
 export function validateCommand(c){
-  if(!c||!safeId(c.requestId)||!safeId(c.sessionId)||!['prompt','abort','configure','history','document','resume'].includes(c.command))throw Error('Invalid command');
+  if(!c||!safeId(c.requestId)||!safeId(c.sessionId)||!['prompt','abort','configure','history','document','resume','mcp','name','new','close','delete'].includes(c.command))throw Error('Invalid command');
+  if(c.command==='new'){
+    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(c.sessionId)||typeof c.workspaceId!=='string'||!c.workspaceId||c.workspaceId.length>4000||/[\x00-\x1f]/.test(c.workspaceId))throw Error('Invalid new session');
+    return {type:'command',command:'new',sessionId:c.sessionId,requestId:c.requestId,workspaceId:c.workspaceId};
+  }
+  if(c.command==='close'||c.command==='delete'){
+    if(c.confirm!==true)throw Error('Confirmation required');
+    return {type:'command',command:c.command,sessionId:c.sessionId,requestId:c.requestId,confirm:true,force:c.force===true};
+  }
+  if(c.command==='name'){
+    if(typeof c.name!=='string'||!c.name.trim()||c.name.length>200||/[\x00-\x1f]/.test(c.name))throw Error('Invalid session name');
+    return {type:'command',command:'name',sessionId:c.sessionId,requestId:c.requestId,name:c.name.trim()};
+  }
   if(c.command==='history'){
     if(typeof c.before!=='string'||!c.before||c.before.length>500||!Number.isInteger(c.limit??40)||(c.limit??40)<1||(c.limit??40)>40)throw Error('Invalid history cursor');
     return {type:'command',command:'history',sessionId:c.sessionId,requestId:c.requestId,before:c.before,limit:c.limit??40};
@@ -30,7 +45,7 @@ export function validateCommand(c){
     if(typeof c.path!=='string'||c.path.length>2000||! /\.(md|markdown)$/i.test(c.path)||/[\x00-\x1f]/.test(c.path))throw Error('Invalid Markdown path');
     return {type:'command',command:'document',sessionId:c.sessionId,requestId:c.requestId,path:c.path};
   }
-  if(c.command==='abort'||c.command==='resume')return {type:'command',sessionId:c.sessionId,requestId:c.requestId,command:c.command};
+  if(c.command==='abort'||c.command==='resume'||c.command==='mcp')return {type:'command',sessionId:c.sessionId,requestId:c.requestId,command:c.command};
   if(c.command==='configure'){
     const text=x=>typeof x==='string'&&x.length>0&&x.length<=200&&!/[\x00-\x1f]/.test(x);
     if((c.provider!==undefined||c.modelId!==undefined)&&(!text(c.provider)||!text(c.modelId)))throw Error('Invalid model');
@@ -41,14 +56,19 @@ export function validateCommand(c){
   if(typeof c.text!=='string'||c.text.length>100000||!Array.isArray(c.images??[])||(c.images?.length||0)>3)throw Error('Invalid prompt');
   const images=c.images||[]; let size=0;
   for(const image of images)size+=decodeImage(image).length;
-  if(size>MAX_IMAGE)throw Error('Total image size exceeds 10MB');
-  if(!c.text.trim()&&!images.length)throw Error('Empty prompt');
+  const files=c.files??[];if(!Array.isArray(files)||files.length+images.length>3)throw Error('Не более 3 вложений');
+  for(const file of files)size+=decodeFile(file).length;
+  if(size>MAX_IMAGE)throw Error('Total attachment size exceeds 10MB');
+  if(!c.text.trim()&&!images.length&&!files.length)throw Error('Empty prompt');
   if(c.behavior!==undefined&&!['steer','followUp'].includes(c.behavior))throw Error('Invalid behavior');
-  return {type:'command',sessionId:c.sessionId,requestId:c.requestId,command:'prompt',text:c.text,images:images.map(i=>({type:'image',mimeType:i.mimeType,data:i.data})),behavior:c.behavior||'followUp'};
+  return {type:'command',sessionId:c.sessionId,requestId:c.requestId,command:'prompt',text:c.text,images:images.map(i=>({type:'image',mimeType:i.mimeType,data:i.data})),behavior:c.behavior||'followUp',...(files.length?{files:files.map(f=>({name:f.name,data:f.data}))}:{})};
 }
 
-export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=true,token:providedToken,orcaReader=readOrca,archiveList,archiveLaunch}={}){
+export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=true,token:providedToken,orcaReader=readOrca,archiveList,archiveLaunch,newLaunch,closeTerminal,speechTranscribe=transcribe,basePath=''}={}){
   if(!dataDir)throw Error('dataDir required');
+  if(typeof basePath!=='string'||(basePath&&!/^\/[a-zA-Z0-9_/-]+$/.test(basePath)))throw Error('Invalid base path');
+  basePath=basePath.replace(/\/+$/,'');
+  const routeUrl=url=>!basePath?url:url===basePath?'/':url?.startsWith(basePath+'/')?url.slice(basePath.length):null;
   if(!['127.0.0.1','::1'].includes(host))throw Error('Bind gateway to loopback; use an authenticated HTTPS reverse proxy');
   fs.mkdirSync(dataDir,{recursive:true,mode:0o700}); fs.chmodSync(dataDir,0o700);
   const tokenFile=path.join(dataDir,'device-token');
@@ -56,6 +76,7 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
   if(!token){if(!fs.existsSync(tokenFile))fs.writeFileSync(tokenFile,crypto.randomBytes(32).toString('base64url'),{mode:0o600,flag:'wx'}); token=fs.readFileSync(tokenFile,'utf8').trim(); fs.chmodSync(tokenFile,0o600);}
   if(typeof token!=='string'||token.length<32)throw Error('Token too short');
   const expected=hash(token),sessions=new Map(),pending=new Map(),receipts=new Map(),bridges=new Set(),media=new Map();
+  let speechBusy=false;
   let mediaBytes=0, inventory={workspaces:[],terminals:[],truncated:false,omittedHostIds:[]},inventoryError=null,closed=false;
   const authorized=req=>{const a=req.headers.authorization||'';return a.startsWith('Bearer ')&&crypto.timingSafeEqual(Buffer.from(hash(a.slice(7))),Buffer.from(expected));};
   const send=(ws,obj)=>{if(ws.readyState===WebSocket.OPEN){if(ws.bufferedAmount>8*1024*1024){ws.close(1013,'Slow client');return;}ws.send(JSON.stringify(obj));}};
@@ -68,12 +89,11 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
       return {...s.meta,workspaceId,title:s.meta.title||terminal?.title||path.basename(s.meta.cwd),connected:!!s.socket,status:s.socket?s.status:'offline'};
     });
     const terminals=inventory.terminals.filter(t=>!list.some(s=>s.terminalId===t.id));
-    const used=new Set([...list.map(s=>s.workspaceId),...terminals.map(t=>t.workspaceId)]);
-    return {type:'catalog',workspaces:[...workspaces.values()].filter(w=>used.has(w.id)),sessions:list,terminals,truncated:inventory.truncated,omittedHostIds:inventory.omittedHostIds,inventoryError};
+    return {type:'catalog',workspaces:[...workspaces.values()],sessions:list,terminals,truncated:inventory.truncated,omittedHostIds:inventory.omittedHostIds,inventoryError};
   }
   const wss=new WebSocketServer({noServer:true,maxPayload:16*1024*1024,perMessageDeflate:false});
   const broadcastCatalog=()=>{const c=catalog();for(const ws of wss.clients)send(ws,c);};
-  const config=m=>({model:String(m?.model||'').slice(0,300),thinkingLevel:String(m?.thinkingLevel||'off'),models:(Array.isArray(m?.models)?m.models:[]).slice(0,1000).filter(x=>typeof x.provider==='string'&&typeof x.id==='string').map(x=>({provider:x.provider.slice(0,200),id:x.id.slice(0,200),name:String(x.name||x.id).slice(0,200),thinkingLevels:(Array.isArray(x.thinkingLevels)?x.thinkingLevels:[]).filter(x=>['off','minimal','low','medium','high','xhigh','max'].includes(x))})),modelsTruncated:!!m?.modelsTruncated});
+  const config=m=>({capabilities:(Array.isArray(m?.capabilities)?m.capabilities:[]).filter(x=>['skills','mcp','name'].includes(x)),skills:(Array.isArray(m?.skills)?m.skills:[]).slice(0,500).filter(x=>typeof x?.name==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(x.name)).map(x=>({name:x.name,description:String(x.description||'').slice(0,1024)})),model:String(m?.model||'').slice(0,300),thinkingLevel:String(m?.thinkingLevel||'off'),models:(Array.isArray(m?.models)?m.models:[]).slice(0,1000).filter(x=>typeof x.provider==='string'&&typeof x.id==='string').map(x=>({provider:x.provider.slice(0,200),id:x.id.slice(0,200),name:String(x.name||x.id).slice(0,200),thinkingLevels:(Array.isArray(x.thinkingLevels)?x.thinkingLevels:[]).filter(x=>['off','minimal','low','medium','high','xhigh','max'].includes(x))})),modelsTruncated:!!m?.modelsTruncated});
   const pageMeta=p=>({history:{before:String(p.history?.before||'').slice(0,500),hasMore:p.history?.hasMore===true},epoch:Number(p.epoch)||0,activeTurnId:String(p.activeTurnId||''),turns:(Array.isArray(p.turns)?p.turns:[]).slice(-100).map(t=>({id:String(t.id||''),startedAt:Number(t.startedAt)||0,finishedAt:Number(t.finishedAt)||null,outputTokens:Math.max(0,Number(t.outputTokens)||0),generationMs:Math.max(0,Number(t.generationMs)||0)}))});
   const snapshot=s=>({type:'snapshot',sessionId:s.meta.id,status:s.socket?s.status:'offline',connected:!!s.socket,messages:s.messages,truncated:s.truncated,configuration:s.configuration,...s.page});
   const broadcastSnapshot=(s,previous,configChanged=false)=>{for(const ws of wss.clients)if(ws.sessionId===s.meta.id){
@@ -82,7 +102,7 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
     const overlap=previous.findIndex(m=>m.id===s.messages[0]?.id);
     send(ws,{type:'messages',sessionId:s.meta.id,status:s.socket?s.status:'offline',connected:!!s.socket,truncated:s.truncated,turns:s.page.turns,activeTurnId:s.page.activeTurnId,epoch:s.page.epoch,...(configChanged?{configuration:s.configuration}:{}),messages:s.messages.filter(m=>old.get(m.id)!==JSON.stringify(m)),removedIds:previous.filter((m,i)=>overlap>=0&&i>=overlap&&!ids.has(m.id)).map(m=>m.id)});
   }};
-  function normalize(id,messages){
+  function normalize(id,messages,activeTurn=''){
     let truncated=messages.length>200;
     const tail=messages.slice(-200),results=new Map(),emitted=new Set(),lastAssistant=new Map();
     for(let i=0;i<tail.length;i++)if(tail[i].role==='assistant')lastAssistant.set(tail[i].turnId||'legacy',i);
@@ -103,8 +123,8 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
         }catch{text.push('[Изображение пропущено: неподдерживаемый формат или размер]');}
       }
       if(m.role==='assistant'&&m.errorMessage)text.push(`[Ошибка] ${m.errorMessage}`);
-      let body=text.join('\n');if(body.length>30000){body=body.slice(0,30000)+'\n[Обрезано]';truncated=true;}
-      return {id:String(m.role==='toolResult'&&m.toolCallId?'tool:'+m.toolCallId:m.id||`${m.role}-${m.timestamp||0}-${i}`),role:m.role,text:body,images,turnId:String(m.turnId||'legacy'),phase:m.role==='assistant'&&(i!==lastAssistant.get(m.turnId||'legacy')||blocks.some(b=>b.type==='toolCall'))?'work':'answer',...(m.toolName?{toolName:m.toolName,toolStatus:m.toolStatus||(m.isError?'error':'done')}:{})};
+      let body=text.join('\n');if(m.role==='user')body=attachmentDisplay(body,dataDir);if(body.length>30000){body=body.slice(0,30000)+'\n[Обрезано]';truncated=true;}
+      return {id:String(m.role==='toolResult'&&m.toolCallId?'tool:'+m.toolCallId:m.id||`${m.role}-${m.timestamp||0}-${i}`),role:m.role,text:body,images,turnId:String(m.turnId||'legacy'),phase:m.role==='assistant'&&(m.turnId===activeTurn||m.phase==='work'||i!==lastAssistant.get(m.turnId||'legacy')||blocks.some(b=>b.type==='toolCall'))?'work':'answer',...(m.toolName?{toolName:m.toolName,toolStatus:m.toolStatus||(m.isError?'error':'done')}:{})};
     }
     const result=[];
     function tool(call,m,i){
@@ -134,13 +154,21 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
     return inventoryRead;
   }
   const archive=new Archive({dataDir,inventory:syncInventory,owners:()=>[...sessions.values()].filter(s=>s.socket&&!s.socket.destroyed).map(s=>s.meta),list:archiveList,launch:archiveLaunch});
+  const lifecycle=new Lifecycle({dataDir,inventory:syncInventory,owners:()=>[...sessions.values()].filter(s=>s.socket&&!s.socket.destroyed).map(s=>({...s.meta,status:s.status})),launch:newLaunch,close:closeTerminal});
   const server=http.createServer(async(req,res)=>{
     try{
-      const u=new URL(req.url,'http://localhost');
-      if(req.method!=='GET')return json(res,405,{error:'Method not allowed'});
-      if(u.pathname==='/health')return json(res,200,{ok:true});
+      const route=routeUrl(req.url);if(route===null)return json(res,404,{error:'Not found'});
+      const u=new URL(route,'http://localhost');
+      if(req.method==='GET'&&u.pathname==='/health')return json(res,200,{ok:true});
       if(!authorized(req))return json(res,401,{error:'Unauthorized'});
       if(req.headers.origin)return json(res,403,{error:'Browser origins are not allowed'});
+      if(req.method==='POST'&&u.pathname==='/api/transcribe'){
+        if(speechBusy)return json(res,429,{error:'Предыдущая запись ещё распознаётся'});
+        speechBusy=true;const controller=new AbortController();res.on('close',()=>{if(!res.writableEnded)controller.abort();});
+        try{let bytes=0;const chunks=[];for await(const chunk of req){bytes+=chunk.length;if(bytes>3*1024*1024)throw Error('Запись слишком большая');chunks.push(chunk);}const body=JSON.parse(Buffer.concat(chunks));if(body.sampleRate!==16000)throw Error('Ожидается PCM16 mono 16000 Hz');const data=audioBytes(body.audio);return json(res,200,await speechTranscribe(data,{signal:controller.signal}));}
+        catch(e){return json(res,400,{error:String(e.message||'Ошибка диктовки').slice(0,500)});}finally{speechBusy=false;}
+      }
+      if(req.method!=='GET')return json(res,405,{error:'Method not allowed'});
       if(u.pathname==='/api/catalog')return json(res,200,catalog());
       if(u.pathname==='/api/archive'){
         const offset=Number(u.searchParams.get('offset')||0),query=u.searchParams.get('q')||'';
@@ -156,7 +184,7 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
     }catch{json(res,400,{error:'Запрос недоступен. Проверь Orca на Mac и обнови список.'});}
   });
   server.on('upgrade',(req,socket,head)=>{
-    if(req.url!=='/ws'||!authorized(req)||req.headers.origin||wss.clients.size>=8){socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');return;}
+    if(routeUrl(req.url)!=='/ws'||!authorized(req)||req.headers.origin||wss.clients.size>=8){socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');return;}
     wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws,req));
   });
   function complete(requestId,ack){
@@ -177,15 +205,17 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
         const receipt=receipts.get(c.requestId);if(receipt){if(receipt.hash!==fingerprint)throw Error('Request ID reused');send(ws,receipt.result);return;}
         const inflight=pending.get(c.requestId);if(inflight){if(inflight.hash!==fingerprint)throw Error('Request ID reused');inflight.clients.add(ws);return;}
         recent=recent.filter(t=>Date.now()-t<60000);if(recent.length>=30)throw Error('Too many commands');recent.push(Date.now());
-        if(c.command==='resume'){
+        if(['resume','new','close','delete'].includes(c.command)){
           if(pending.size>=100)throw Error('Too many pending commands');
           const timer=setTimeout(()=>complete(c.requestId,{ok:false,error:'Результат запуска неизвестен. Проверь Orca на Mac; не запускай копию'}),30000);timer.unref();
-          pending.set(c.requestId,{clients:new Set([ws]),sessionId:c.sessionId,timer,hash:fingerprint,command:'resume'});
-          archive.resume(c.sessionId).then(data=>complete(c.requestId,{ok:true,data}),e=>complete(c.requestId,{ok:false,error:String(e.message).slice(0,500)}));return;
+          pending.set(c.requestId,{clients:new Set([ws]),sessionId:c.sessionId,timer,hash:fingerprint,command:c.command});
+          const operation=c.command==='resume'?archive.resume(c.sessionId):c.command==='new'?lifecycle.create(c.sessionId,c.workspaceId):c.command==='close'?lifecycle.close(c.sessionId,c.force):archive.remove(c.sessionId);
+          operation.then(data=>{complete(c.requestId,{ok:true,data});syncInventory().catch(()=>{});},e=>complete(c.requestId,{ok:false,error:String(e.message).slice(0,500)}));return;
         }
         const s=sessions.get(c.sessionId);if(!s?.socket||s.socket.destroyed)throw Error('Pi offline: reload mobile extension in terminal');
         if(pending.size>=100)throw Error('Too many pending commands');
         if(s.socket.writableLength>MAX_FRAME)throw Error('Pi connection is congested');
+        if(c.command==='prompt')c=attachFiles(c,dataDir);
         const timer=setTimeout(()=>complete(c.requestId,{ok:false,error:'Acceptance unknown: no automatic retry; inspect chat before sending again'}),15000);timer.unref();
         pending.set(c.requestId,{clients:new Set([ws]),sessionId:c.sessionId,timer,hash:fingerprint,socket:s.socket,command:c.command});
         s.socket.write(JSON.stringify(c)+'\n');
@@ -211,20 +241,22 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
           if(id&&id!==m.id){const prior=sessions.get(id);if(prior?.socket===socket){prior.socket=null;broadcastSnapshot(prior);}for(const [rid,p]of pending)if(p.socket===socket)complete(rid,{ok:false,error:'Session changed; acceptance unknown'});}
           id=m.id;
           const meta={id,title:String(m.title||'').slice(0,200),cwd:m.cwd,terminalId:String(m.terminalId||''),workspaceId:String(m.workspaceId||''),model:String(m.model||'')};
-          const normalized=normalize(id,packet.messages);
+          const normalized=normalize(id,packet.messages,packet.status==='running'?String(packet.activeTurnId||''):'');
           const s={meta,configuration:config(m),page:pageMeta(packet),socket,status:packet.status==='running'?'running':'idle',...normalized,truncated:!!packet.truncated||normalized.truncated};sessions.set(id,s);broadcastCatalog();broadcastSnapshot(s);
         }else if(packet.type==='snapshot'){
           if(!id||packet.id!==id||!Array.isArray(packet.messages))throw Error('Wrong session');const s=sessions.get(id);if(s?.socket!==socket)throw Error('Wrong owner');
-          const old=s.status,previous=s.messages,oldEpoch=s.page.epoch;s.page=pageMeta(packet); const normalized=normalize(id,packet.messages);Object.assign(s,normalized,{status:packet.status==='running'?'running':'idle',truncated:!!packet.truncated||normalized.truncated});
+          const old=s.status,previous=s.messages,oldEpoch=s.page.epoch;s.page=pageMeta(packet); const normalized=normalize(id,packet.messages,packet.status==='running'?String(packet.activeTurnId||''):'');Object.assign(s,normalized,{status:packet.status==='running'?'running':'idle',truncated:!!packet.truncated||normalized.truncated});
+          const oldTitle=s.meta.title;
           if(packet.meta?.title!==undefined)s.meta.title=String(packet.meta.title).slice(0,200);
           if(packet.meta?.model!==undefined)s.meta.model=String(packet.meta.model).slice(0,200);
           const nextConfig=config(packet.meta),configChanged=JSON.stringify(nextConfig)!==JSON.stringify(s.configuration);
           s.configuration=nextConfig;
-          broadcastSnapshot(s,oldEpoch===s.page.epoch?previous:null,configChanged);if(old!==s.status||configChanged)broadcastCatalog();
+          broadcastSnapshot(s,oldEpoch===s.page.epoch?previous:null,configChanged);if(old!==s.status||configChanged||oldTitle!==s.meta.title)broadcastCatalog();
         }else if(packet.type==='ack'){
           const p=pending.get(packet.requestId);if(p?.socket===socket&&p.sessionId===id){
             let data;
-            if(packet.ok&&p.command==='history'&&Array.isArray(packet.data?.messages))data={type:'history',...normalize(id,packet.data.messages),...pageMeta(packet.data)};
+            if(packet.ok&&p.command==='mcp'&&Array.isArray(packet.data?.servers))data={type:'mcp',observedAt:Number(packet.data.observedAt)||0,servers:packet.data.servers.slice(0,200).filter(x=>typeof x?.name==='string'&&['connected','not-connected','needs-auth','failed','cached','disabled','blocked'].includes(x.status)).map(x=>({name:x.name.slice(0,200),status:x.status,toolCount:Math.max(0,Number(x.toolCount)||0)}))};
+            if(packet.ok&&p.command==='history'&&Array.isArray(packet.data?.messages))data={type:'history',...normalize(id,packet.data.messages,sessions.get(id)?.page.activeTurnId||''),...pageMeta(packet.data)};
             if(data?.type==='history')delete data.activeTurnId;
             if(packet.ok&&p.command==='document'&&typeof packet.data?.text==='string'&&Buffer.byteLength(packet.data.text)<=1024*1024)data={type:'document',path:String(packet.data.path||'').slice(0,2000),text:packet.data.text};
             complete(packet.requestId,{ok:packet.ok===true,...(data?{data}:{}),...(packet.error?{error:String(packet.error).slice(0,500)}:{})});

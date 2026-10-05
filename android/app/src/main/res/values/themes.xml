@@ -2,6 +2,10 @@
 <resources>
     <style name="Pi" />
     <style name="Theme.PiMobile" parent="Theme.Material3Expressive.DayNight.NoActionBar">
+        <item name="materialButtonStyle">@style/Pi.Button</item>
+        <item name="buttonBarPositiveButtonStyle">@style/Pi.Button.Tiny</item>
+        <item name="buttonBarNegativeButtonStyle">@style/Pi.Button.Tiny</item>
+        <item name="buttonBarNeutralButtonStyle">@style/Pi.Button.Tiny</item>
         <item name="colorPrimary">@color/accent</item>
         <item name="colorOnPrimary">@color/on_accent</item>
         <item name="colorPrimaryContainer">@color/accent_soft</item>
@@ -48,7 +52,9 @@
         <item name="android:padding">16dp</item>
         <item name="android:minHeight">56dp</item>
     </style>
+    <style name="Pi.Shape.Button" parent=""><item name="cornerFamily">rounded</item><item name="cornerSize">24dp</item></style>
     <style name="Pi.Button" parent="Widget.Material3Expressive.Button">
+        <item name="shapeAppearance">@style/Pi.Shape.Button</item>
         <item name="android:textAllCaps">false</item>
         <item name="android:textSize">14sp</item>
         <item name="android:minHeight">48dp</item>
@@ -60,6 +66,7 @@
     </style>
     <style name="Pi.Button.Primary" parent="Pi.Button" />
     <style name="Pi.Button.Secondary" parent="Widget.Material3Expressive.Button.TonalButton">
+        <item name="shapeAppearance">@style/Pi.Shape.Button</item>
         <item name="android:minHeight">48dp</item>
         <item name="android:textSize">14sp</item>
         <item name="android:insetTop">0dp</item>
@@ -71,15 +78,24 @@
         <item name="iconTint">@color/danger</item>
     </style>
     <style name="Pi.Button.Tiny" parent="Widget.Material3Expressive.Button.TextButton">
+        <item name="shapeAppearance">@style/Pi.Shape.Button</item>
         <item name="android:minHeight">48dp</item>
         <item name="android:textSize">12sp</item>
+    </style>
+    <style name="Pi.Shape.Circle" parent="">
+        <item name="cornerFamily">rounded</item><item name="cornerSize">50%</item>
     </style>
     <style name="Pi.Icon" parent="Widget.Material3Expressive.Button.IconButton.Tonal">
         <item name="android:minWidth">48dp</item>
         <item name="android:minHeight">48dp</item>
         <item name="android:insetTop">0dp</item>
         <item name="android:insetBottom">0dp</item>
-        <item name="iconSize">24dp</item>
+        <item name="android:insetLeft">0dp</item><item name="android:insetRight">0dp</item>
+        <item name="android:padding">0dp</item><item name="android:paddingStart">0dp</item><item name="android:paddingEnd">0dp</item>
+        <item name="iconPadding">0dp</item><item name="iconSize">24dp</item>
+        <item name="iconGravity">textStart</item><item name="android:gravity">center</item>
+        <item name="shapeAppearance">@style/Pi.Shape.Circle</item>
+        <item name="shapeAppearanceOverlay">@style/Pi.Shape.Circle</item>
     </style>
     <style name="Pi.Segment" parent="Widget.Material3Expressive.Button.TonalButton">
         <item name="android:textSize">11sp</item>
