@@ -4,6 +4,7 @@ import {homedir} from 'node:os';
 import {getSupportedThinkingLevels} from '@earendil-works/pi-ai/compat';
 import {historyPage,messageId,PAGE_SIZE,readMarkdown} from './session-data.ts';
 import {skillCommands,skillPrompt,mcpSnapshot} from './mobile-controls.ts';
+import {supportedTiers,observedTier,restoredTier,tierPayload,TIER_ENTRY,type MobileTier} from './mobile-tier.ts';
 import type {ExtensionAPI,ExtensionContext} from '@earendil-works/pi-coding-agent';
 
 // Session-scoped resources only. No second Pi process, no access to auth secrets.
@@ -17,14 +18,16 @@ export default function mobile(pi:ExtensionAPI){
   let current:any=null,streamStarted=0;
   const turnStats=new Map<string,any>();
   let mcp:any=null;
+  let serviceTier:MobileTier|null=null,execution:any=null;
   pi.events.on('pi-mcp-adapter/status/v1',(value:unknown)=>{const clean=mcpSnapshot(value);if(clean)mcp={...clean,observedAt:Date.now()};});
   const socketPath=process.env.PI_MOBILE_SOCKET||path.join(process.env.PI_MOBILE_DIR||path.join(homedir(),'.pi/agent/pi-mobile'),'bridge.sock');
   function metadata(){
     const available=ctx?.modelRegistry?.getAvailable()||[];
-    return {capabilities:['skills','mcp','name'],skills:skillCommands(pi.getCommands()),sessionFile:ctx!.sessionManager.getSessionFile(),id:ctx!.sessionManager.getSessionId(),title:pi.getSessionName()||path.basename(ctx!.cwd),cwd:ctx!.cwd,pid:process.pid,terminalId:process.env.ORCA_TERMINAL_HANDLE||'',workspaceId:process.env.ORCA_WORKTREE_ID||'',model:ctx?.model?`${ctx.model.provider}/${ctx.model.id}`:'',thinkingLevel:pi.getThinkingLevel?.()||'off',models:available.slice(0,1000).map(m=>({provider:m.provider,id:m.id,name:m.name||m.id,thinkingLevels:getSupportedThinkingLevels(m)})),modelsTruncated:available.length>1000};
+    return {capabilities:['skills','mcp','name','service-tier'],serviceTier:serviceTier||'standard',serviceTiers:supportedTiers(ctx?.model),execution,skills:skillCommands(pi.getCommands()),sessionFile:ctx!.sessionManager.getSessionFile(),id:ctx!.sessionManager.getSessionId(),title:pi.getSessionName()||path.basename(ctx!.cwd),cwd:ctx!.cwd,pid:process.pid,terminalId:process.env.ORCA_TERMINAL_HANDLE||'',workspaceId:process.env.ORCA_WORKTREE_ID||'',model:ctx?.model?`${ctx.model.provider}/${ctx.model.id}`:'',thinkingLevel:pi.getThinkingLevel?.()||'off',models:available.slice(0,1000).map(m=>({provider:m.provider,id:m.id,name:m.name||m.id,thinkingLevels:getSupportedThinkingLevels(m),serviceTiers:supportedTiers(m)})),modelsTruncated:available.length>1000};
   }
   function load(){
-    const page=historyPage(ctx!.sessionManager.getBranch());
+    const branch=ctx!.sessionManager.getBranch();serviceTier=restoredTier(branch);execution=null;
+    const page=historyPage(branch);
     history=page.history;transcript=page.messages;turnId=transcript.at(-1)?.turnId||'legacy';
     turnStats.clear();for(const t of page.turns)turnStats.set(t.id,t);
     truncated=false;partial=null;tools.clear();epoch++;
@@ -68,10 +71,12 @@ export default function mobile(pi:ExtensionAPI){
         if((c.provider||c.modelId)&&(running||!ctx.isIdle()))throw Error('Дождись завершения текущей задачи перед сменой модели');
         const target=c.provider&&c.modelId?ctx.modelRegistry.getAvailable().find(m=>m.provider===c.provider&&m.id===c.modelId):ctx.model;
         if(!target)throw Error('Модель недоступна в этом Pi');
-        if(c.thinkingLevel!==undefined&&!getSupportedThinkingLevels(target).includes(c.thinkingLevel))throw Error('Этот effort не поддерживается моделью');
+        if(c.thinkingLevel!==undefined&&!getSupportedThinkingLevels(target).includes(c.thinkingLevel))throw Error('This effort is not supported by the model');
+        if(c.serviceTier!==undefined&&!supportedTiers(target).includes(c.serviceTier))throw Error('Service tier is unavailable for this provider');
         if(c.provider&&c.modelId&&!(await pi.setModel(target)))throw Error('Для модели не настроен доступ');
         if(gen!==generation||c.sessionId!==ctx.sessionManager.getSessionId())throw Error('Session changed during configuration');
         if(c.thinkingLevel!==undefined)pi.setThinkingLevel(c.thinkingLevel);
+        if(c.serviceTier!==undefined){serviceTier=c.serviceTier;pi.appendEntry(TIER_ENTRY,{serviceTier});}
         schedule();
       }else if(c.command==='prompt'){
         if(typeof c.text!=='string'||c.text.length>100000||!Array.isArray(c.images||[])||(c.images?.length||0)>3)throw Error('Invalid prompt');
@@ -119,8 +124,19 @@ export default function mobile(pi:ExtensionAPI){
     if(tools.size>200)tools.delete(tools.keys().next().value!);
     schedule();
   }
+  pi.on('before_provider_request',(e,c)=>{
+    if(!enabled)return;ctx=c;const payload=e.payload as any;
+    const replacement=tierPayload(payload,c.model,serviceTier),request=replacement||payload;
+    execution={model:typeof request?.model==='string'?request.model:String(c.model?.id||''),provider:String(c.model?.provider||''),thinkingLevel:typeof request?.reasoning?.effort==='string'?request.reasoning.effort:pi.getThinkingLevel?.()||'off',serviceTier:observedTier(request?.service_tier)||(request?.service_tier!=null?'unknown':supportedTiers(c.model).length?'standard':'unknown'),tierConfirmed:false};
+    schedule();return replacement;
+  });
+  pi.on('provider_stream_event',(e,c)=>{
+    if(!enabled||!execution)return;const data=e.data as any,response=data?.response;
+    if(!response||!['response.created','response.completed','response.in_progress'].includes(data.type))return;
+    const tier=observedTier(response.service_tier);if(tier){execution={...execution,model:String(e.model||execution.model),provider:String(e.provider||execution.provider),serviceTier:tier,tierConfirmed:true};schedule();}
+  });
   pi.on('session_start',(_e,c)=>{disconnect();ctx=c;enabled=c.mode==='tui';if(!enabled)return;running=!c.isIdle();load();connect();});
-  pi.on('session_shutdown',()=>{enabled=false;disconnect();ctx=undefined;transcript=[];partial=null;tools.clear();seen.clear();turnStats.clear();current=null;});
+  pi.on('session_shutdown',()=>{enabled=false;disconnect();ctx=undefined;transcript=[];partial=null;tools.clear();seen.clear();turnStats.clear();current=null;serviceTier=null;execution=null;});
   pi.on('message_start',(e,c)=>{ctx=c;if(!enabled)return;if(e.message.role==='assistant'){if(current){current.id=turnId;turnStats.set(turnId,current);}partial=tagged(e.message);streamStarted=0;}schedule();});
   pi.on('message_update',(e,c)=>{ctx=c;if(!enabled)return;partial=tagged(e.message);if(!streamStarted)streamStarted=Date.now();schedule();});
   pi.on('message_end',(e,c)=>{ctx=c;if(!enabled)return;remember(e.message);schedule();});

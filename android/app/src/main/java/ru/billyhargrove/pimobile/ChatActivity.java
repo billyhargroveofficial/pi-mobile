@@ -274,7 +274,7 @@ public final class ChatActivity extends AppCompatActivity
             if (configurationRequest != null) { toast("Waiting for the previous change to be confirmed"); return; }
             configurationRequest = client.configure(sessionId, null, null, value);
             if (configurationRequest == null) toast("Pi is disconnected. Change not sent");
-        });
+        },configuration.optString("serviceTier","standard"),tier->{if(configurationRequest!=null)return;configurationRequest=client.configure(sessionId,null,null,null,tier);if(configurationRequest==null)toast("Pi is disconnected. Change not sent");});
     }
 
     private void openModelSettings() {
@@ -285,9 +285,9 @@ public final class ChatActivity extends AppCompatActivity
         }
         if(modelSheet != null)modelSheet.dismiss();
         ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(composerInput.getWindowToken(),0);
-        modelSheet=new ru.billyhargrove.pimobile.ui.ModelSettingsSheet(this,configuration,client.state()==ConnectionState.CONNECTED && sessionStatus==SessionStatus.IDLE && !readOnly,(provider,model,effort)->{
+        modelSheet=new ru.billyhargrove.pimobile.ui.ModelSettingsSheet(this,configuration,client.state()==ConnectionState.CONNECTED && sessionStatus==SessionStatus.IDLE && !readOnly,(provider,model,effort,tier)->{
             if(sessionStatus!=SessionStatus.IDLE){modelSheet.failed("Wait for the current task to finish");return;}
-            configurationRequest=client.configure(sessionId,provider,model,effort);
+            configurationRequest=client.configure(sessionId,provider,model,effort,tier);
             if(configurationRequest==null)modelSheet.failed("Pi is disconnected. Changes not sent.");
         });
         modelSheet.show();
@@ -361,7 +361,7 @@ public final class ChatActivity extends AppCompatActivity
     private void startDictation(){
         if(isFinishing()||isDestroyed())return;
         dictation=new ru.billyhargrove.pimobile.ui.DictationRecorder(this,bytes->{dictation=null;transcribing=true;updateSendIcon();toast("Transcribing on your computer…");String url=settings.baseUrl(),token=settings.token();
-            AppExecutors.io().execute(()->{String text=null,error=null;try{text=app.api().transcribe(url,token,bytes);}catch(Exception e){error=e.getMessage();}String result=text,failure=error;AppExecutors.main(()->{transcribing=false;if(isFinishing()||isDestroyed())return;updateSendIcon();if(failure!=null){toast(failure);return;}if(result==null||result.isBlank()){toast("No speech detected");return;}int at=Math.max(0,composerInput.getSelectionStart());composerInput.getText().insert(at,(at>0?" ":"")+result);});});
+            AppExecutors.io().execute(()->{String text=null,error=null;try{text=app.api().transcribe(url,token,bytes);}catch(Exception e){error=e.getMessage();}finally{bytes.delete();}String result=text,failure=error;AppExecutors.main(()->{transcribing=false;if(isFinishing()||isDestroyed())return;updateSendIcon();if(failure!=null){toast(failure);return;}if(result==null||result.isBlank()){toast("No speech detected");return;}int at=Math.max(0,composerInput.getSelectionStart());composerInput.getText().insert(at,(at>0?" ":"")+result);});});
         },this::toast);
     }
 
@@ -753,7 +753,11 @@ public final class ChatActivity extends AppCompatActivity
         String model = configuration == null ? "" : configuration.optString("model", "");
         if(model.contains("/"))model=model.substring(model.lastIndexOf('/')+1);
         String detail=model.isEmpty()?"Online":model+" · "+configuration.optString("thinkingLevel","off");
-        chatStatusText.setText(cachedView ? "Cached · syncing" : !connected ? StatusUi.connectionLabel(this, client.state()) : sessionStatus == SessionStatus.OFFLINE ? "Pi disconnected · history available" : sessionStatus==SessionStatus.RUNNING?"Working":"Connected");
+        boolean running=sessionStatus==SessionStatus.RUNNING;
+        ru.billyhargrove.pimobile.core.ExecutionInfo execution=new ru.billyhargrove.pimobile.core.ExecutionInfo(configuration,running);
+        String state=cachedView?"Cached · syncing":!connected?StatusUi.connectionLabel(this,client.state()):sessionStatus==SessionStatus.OFFLINE?"Pi disconnected":running?"Working":"Connected";
+        chatStatusText.setText(state+(execution.model.isEmpty()?"":" · "+execution.model));
+        TextView modelDetails=findViewById(R.id.chatModelDetails);modelDetails.setVisibility(execution.model.isEmpty()?View.GONE:View.VISIBLE);modelDetails.setText(ru.billyhargrove.pimobile.ui.EffortSlider.label(execution.effort)+" effort · "+(execution.available&&"fast".equals(execution.tier)?"⚡ ":"")+execution.tierLabel(running));
         findViewById(R.id.effortButton).setContentDescription("Effort: " + (configuration==null?"unknown":ru.billyhargrove.pimobile.ui.EffortSlider.label(configuration.optString("thinkingLevel","off"))));
         chatConnectionDot.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 StatusUi.sessionDotColor(this, sessionStatus, connected && sessionStatus != SessionStatus.OFFLINE)));

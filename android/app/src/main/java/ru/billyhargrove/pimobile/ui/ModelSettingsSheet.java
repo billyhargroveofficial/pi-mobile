@@ -16,11 +16,14 @@ import ru.billyhargrove.pimobile.R;
 /** Native model list and discrete effort control, populated only from this live Pi. */
 public final class ModelSettingsSheet extends BottomSheetDialog {
  public interface Apply {void apply(String provider,String model,String effort);}
+ public interface TierApply {void apply(String provider,String model,String effort,String tier);}
+ private final TierToggle tier;private final String preferredTier;
  private final MaterialButton apply;private final TextView status,effortTitle;private final EffortSlider effort;
  private final List<JSONObject> models=new ArrayList<>(),visible=new ArrayList<>();private final Rows adapter=new Rows();
  private JSONObject selected;private final boolean idle;private boolean pending,multipleProviders;private String preferred;
- public ModelSettingsSheet(Context context,JSONObject config,boolean idle,Apply callback){
-  super(context);this.idle=idle;preferred=config.optString("thinkingLevel","off");
+ public ModelSettingsSheet(Context context,JSONObject config,boolean idle,Apply callback){this(context,config,idle,(provider,model,effort,tier)->callback.apply(provider,model,effort));}
+ public ModelSettingsSheet(Context context,JSONObject config,boolean idle,TierApply callback){
+  super(context);this.idle=idle;preferred=config.optString("thinkingLevel","off");preferredTier=config.optString("serviceTier","standard");
   LinearLayout root=new LinearLayout(context);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(20),dp(10),dp(20),dp(20));
   View handle=new View(context);GradientDrawable grip=new GradientDrawable();grip.setColor(context.getColor(R.color.text_hint));grip.setCornerRadius(dp(3));handle.setBackground(grip);LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(dp(32),dp(4));hp.gravity=Gravity.CENTER_HORIZONTAL;hp.bottomMargin=dp(14);root.addView(handle,hp);
   TextView title=text(18);title.setText("Configure");title.setTypeface(null,android.graphics.Typeface.BOLD);title.setGravity(Gravity.CENTER);root.addView(title,new LinearLayout.LayoutParams(-1,dp(30)));
@@ -33,16 +36,17 @@ public final class ModelSettingsSheet extends BottomSheetDialog {
   RecyclerView list=new RecyclerView(context);list.setId(R.id.modelSelector);list.setLayoutManager(new LinearLayoutManager(context));list.setAdapter(adapter);list.setItemAnimator(null);GradientDrawable group=new GradientDrawable();group.setColor(context.getColor(R.color.surface_alt));group.setCornerRadius(dp(22));list.setBackground(group);list.setClipToOutline(true);root.addView(list,new LinearLayout.LayoutParams(-1,0,1));
   effortTitle=text(16);effortTitle.setGravity(Gravity.CENTER);effortTitle.setPadding(0,dp(18),0,dp(4));root.addView(effortTitle,new LinearLayout.LayoutParams(-1,-2));
   effort=new EffortSlider(context);effort.setId(R.id.effortSelector);root.addView(effort,new LinearLayout.LayoutParams(-1,dp(60)));
+  tier=new TierToggle(context);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-1,-2);tp.topMargin=dp(8);root.addView(tier,tp);tier.configure(selected==null?null:selected.optJSONArray("serviceTiers"),preferredTier);tier.setEnabled(idle);
   apply=new MaterialButton(context);apply.setId(R.id.applyModelButton);apply.setText("Apply");apply.setTextSize(15);apply.setCornerRadius(dp(28));apply.setBackgroundTintList(android.content.res.ColorStateList.valueOf(context.getColor(R.color.text_primary)));apply.setTextColor(context.getColor(R.color.bg));LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(56));bp.topMargin=dp(12);root.addView(apply,bp);
   if(selected!=null)selectEffort(preferred);else{effortTitle.setText("Select a model");effort.setEnabled(false);}
   if(models.isEmpty())status.setText("Models unavailable. Run /reload in Pi when idle.");else if(config.optBoolean("modelsTruncated"))status.append(" · First 1,000 models");
   apply.setEnabled(idle&&selected!=null);
-  apply.setOnClickListener(v->{if(!idle||selected==null||pending)return;pending=true;apply.setEnabled(false);effort.setEnabled(false);adapter.notifyDataSetChanged();status.setText("Waiting for Pi to confirm…");callback.apply(selected.optString("provider"),selected.optString("id"),effort.value());});
-  setContentView(root);root.getLayoutParams().height=Math.min((int)(context.getResources().getDisplayMetrics().heightPixels*.85f),dp(360+Math.min(models.size(),7)*64+(models.size()>12?48:0)));
+  apply.setOnClickListener(v->{if(!idle||selected==null||pending)return;pending=true;apply.setEnabled(false);effort.setEnabled(false);adapter.notifyDataSetChanged();status.setText("Waiting for Pi to confirm…");tier.setEnabled(false);callback.apply(selected.optString("provider"),selected.optString("id"),effort.value(),tier.value());});
+  setContentView(root);root.getLayoutParams().height=Math.min((int)(context.getResources().getDisplayMetrics().heightPixels*.85f),dp(360+Math.min(models.size(),7)*64+(models.size()>12?48:0)+(models.stream().anyMatch(m->m.optJSONArray("serviceTiers")!=null&&m.optJSONArray("serviceTiers").length()>0)?96:0)));
   androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root,(v,insets)->{v.setPadding(dp(20),dp(10),dp(20),dp(20)+insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom);return insets;});
   setOnShowListener(d->{getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);getBehavior().setSkipCollapsed(true);list.post(()->ExpressiveMotion.reveal(list));if(selected!=null)list.scrollToPosition(models.indexOf(selected));});ExpressiveMotion.press(apply);
  }
- public void failed(String message){pending=false;status.setText(message);status.setTextColor(getContext().getColor(R.color.danger));apply.setEnabled(idle&&selected!=null);effort.setEnabled(idle&&selected!=null&&selected.optJSONArray("thinkingLevels")!=null&&selected.optJSONArray("thinkingLevels").length()>1);adapter.notifyDataSetChanged();}
+ public void failed(String message){pending=false;tier.setEnabled(idle);status.setText(message);status.setTextColor(getContext().getColor(R.color.danger));apply.setEnabled(idle&&selected!=null);effort.setEnabled(idle&&selected!=null&&selected.optJSONArray("thinkingLevels")!=null&&selected.optJSONArray("thinkingLevels").length()>1);adapter.notifyDataSetChanged();}
  private void selectEffort(String wanted){effort.configure(selected.optJSONArray("thinkingLevels"),wanted,(value,committed)->{preferred=value;effortTitle.setText(EffortSlider.label(value)+" effort");});preferred=effort.value();effortTitle.setText(EffortSlider.label(preferred)+" effort");effort.setEnabled(idle&&!pending&&selected.optJSONArray("thinkingLevels")!=null&&selected.optJSONArray("thinkingLevels").length()>1);}
  private static String key(JSONObject m){return m.optString("provider")+"/"+m.optString("id");}
  private int dp(int n){return Math.round(n*getContext().getResources().getDisplayMetrics().density);}
@@ -51,7 +55,7 @@ public final class ModelSettingsSheet extends BottomSheetDialog {
   @Override public Row onCreateViewHolder(ViewGroup parent,int type){LinearLayout box=new LinearLayout(getContext());box.setOrientation(LinearLayout.HORIZONTAL);box.setGravity(Gravity.CENTER_VERTICAL);box.setPadding(dp(16),dp(10),dp(16),dp(10));box.setMinimumHeight(dp(multipleProviders?64:52));RecyclerView.LayoutParams lp=new RecyclerView.LayoutParams(-1,-2);lp.bottomMargin=dp(1);box.setLayoutParams(lp);return new Row(box);}
   @Override public void onBindViewHolder(Row h,int position){JSONObject m=visible.get(position);boolean chosen=selected!=null&&key(m).equals(key(selected));h.title.setText(m.optString("name",m.optString("id")));h.subtitle.setText(m.optString("provider"));h.subtitle.setVisibility(multipleProviders?View.VISIBLE:View.GONE);h.check.setText(chosen?"✓":"");
    GradientDrawable bg=new GradientDrawable();bg.setColor(getContext().getColor(R.color.surface_alt));float top=position==0?dp(22):0,bottom=position==visible.size()-1?dp(22):0;bg.setCornerRadii(new float[]{top,top,top,top,bottom,bottom,bottom,bottom});h.itemView.setBackground(bg);h.itemView.setEnabled(idle&&!pending);h.itemView.setAlpha(idle?1f:.6f);h.itemView.setContentDescription(h.title.getText()+", "+m.optString("provider")+(chosen?", selected":""));h.itemView.setSelected(chosen);
-   h.itemView.setOnClickListener(v->{if(!idle||pending)return;selected=m;selectEffort(preferred);apply.setEnabled(true);adapter.notifyDataSetChanged();});
+   h.itemView.setOnClickListener(v->{if(!idle||pending)return;String priorTier=tier.value();selected=m;selectEffort(preferred);tier.configure(m.optJSONArray("serviceTiers"),priorTier==null?preferredTier:priorTier);apply.setEnabled(true);adapter.notifyDataSetChanged();});
   }
   @Override public int getItemCount(){return visible.size();}
  }

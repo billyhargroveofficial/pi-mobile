@@ -95,12 +95,16 @@ public final class MainActivity extends AppCompatActivity
         connectionSheet.setOnShowListener(dialog -> {
             connectionSheet.getBehavior().setState(com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED);
             connectionSheet.getBehavior().setSkipCollapsed(true);
+            if(connectionSheet.getWindow()!=null)connectionSheet.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+            sheet.findViewById(R.id.bubbleColorPreview).setBackgroundTintList(android.content.res.ColorStateList.valueOf(ru.billyhargrove.pimobile.ui.BubbleColors.color(this)));
         });
         connectErrorText = sheet.findViewById(R.id.connectErrorText);
         connectPanel = sheet.findViewById(R.id.connectPanel);
         updates=new ru.billyhargrove.pimobile.ui.AppUpdates(this);
-        com.google.android.material.button.MaterialButton updateButton=new com.google.android.material.button.MaterialButton(this);updateButton.setId(R.id.checkUpdates);updateButton.setText("Check for updates · "+BuildConfig.VERSION_NAME);((android.view.ViewGroup)connectPanel).addView(updateButton);updateButton.setOnClickListener(v->updates.check(true));
-        com.google.android.material.button.MaterialButton bubbleButton=new com.google.android.material.button.MaterialButton(this);bubbleButton.setText("Your bubble color");((android.view.ViewGroup)connectPanel).addView(bubbleButton);bubbleButton.setOnClickListener(v->ru.billyhargrove.pimobile.ui.BubbleColors.show(this));
+        sheet.findViewById(R.id.checkUpdates).setOnClickListener(v->updates.check(true));
+        ((TextView)sheet.findViewById(R.id.appVersionValue)).setText("Installed · "+BuildConfig.VERSION_NAME);
+        sheet.findViewById(R.id.bubbleColorSettings).setOnClickListener(v->ru.billyhargrove.pimobile.ui.BubbleColors.show(this));
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(connectPanel,(v,insets)->{int p=Math.round(24*getResources().getDisplayMetrics().density);v.setPadding(p,p,p,p+insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom);return insets;});
          connectUrlInput = sheet.findViewById(R.id.connectUrlInput);
         connectTokenInput = sheet.findViewById(R.id.connectTokenInput);
         connectButton = sheet.findViewById(R.id.connectButton);

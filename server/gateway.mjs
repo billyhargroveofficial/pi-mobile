@@ -8,7 +8,7 @@ import {readOrca} from './orca.mjs';
 import {Archive} from './archive.mjs';
 import {Lifecycle} from './lifecycle.mjs';
 import {decodeFile,attachFiles,attachmentDisplay} from './attachments.mjs';
-import {audioBytes,transcribe} from './speech.mjs';
+import {audioBytes,validateAudio,MAX_AUDIO_BYTES,transcribe} from './speech.mjs';
 import {cachedUsage,readUsage} from './usage.mjs';
 import {checkpoint,resumeDelta} from './conversation-sync.mjs';
 
@@ -52,8 +52,9 @@ export function validateCommand(c){
     const text=x=>typeof x==='string'&&x.length>0&&x.length<=200&&!/[\x00-\x1f]/.test(x);
     if((c.provider!==undefined||c.modelId!==undefined)&&(!text(c.provider)||!text(c.modelId)))throw Error('Invalid model');
     if(c.thinkingLevel!==undefined&&!['off','minimal','low','medium','high','xhigh','max'].includes(c.thinkingLevel))throw Error('Invalid effort');
-    if(c.provider===undefined&&c.thinkingLevel===undefined)throw Error('Empty configuration');
-    return {type:'command',sessionId:c.sessionId,requestId:c.requestId,command:'configure',...(c.provider!==undefined?{provider:c.provider,modelId:c.modelId}:{}),...(c.thinkingLevel!==undefined?{thinkingLevel:c.thinkingLevel}:{})};
+    if(c.serviceTier!==undefined&&!['standard','fast'].includes(c.serviceTier))throw Error('Invalid service tier');
+    if(c.provider===undefined&&c.thinkingLevel===undefined&&c.serviceTier===undefined)throw Error('Empty configuration');
+    return {type:'command',sessionId:c.sessionId,requestId:c.requestId,command:'configure',...(c.provider!==undefined?{provider:c.provider,modelId:c.modelId}:{}),...(c.thinkingLevel!==undefined?{thinkingLevel:c.thinkingLevel}:{}),...(c.serviceTier!==undefined?{serviceTier:c.serviceTier}:{})};
   }
   if(typeof c.text!=='string'||c.text.length>100000||!Array.isArray(c.images??[])||(c.images?.length||0)>3)throw Error('Invalid prompt');
   const images=c.images||[]; let size=0;
@@ -95,7 +96,9 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
   }
   const wss=new WebSocketServer({noServer:true,maxPayload:16*1024*1024,perMessageDeflate:false});
   const broadcastCatalog=()=>{const c=catalog();for(const ws of wss.clients)send(ws,c);};
-  const config=m=>({capabilities:(Array.isArray(m?.capabilities)?m.capabilities:[]).filter(x=>['skills','mcp','name'].includes(x)),skills:(Array.isArray(m?.skills)?m.skills:[]).slice(0,500).filter(x=>typeof x?.name==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(x.name)).map(x=>({name:x.name,description:String(x.description||'').slice(0,1024)})),model:String(m?.model||'').slice(0,300),thinkingLevel:String(m?.thinkingLevel||'off'),models:(Array.isArray(m?.models)?m.models:[]).slice(0,1000).filter(x=>typeof x.provider==='string'&&typeof x.id==='string').map(x=>({provider:x.provider.slice(0,200),id:x.id.slice(0,200),name:String(x.name||x.id).slice(0,200),thinkingLevels:(Array.isArray(x.thinkingLevels)?x.thinkingLevels:[]).filter(x=>['off','minimal','low','medium','high','xhigh','max'].includes(x))})),modelsTruncated:!!m?.modelsTruncated});
+  const cleanTiers=values=>(Array.isArray(values)?values:[]).filter(x=>['standard','fast'].includes(x));
+  const execution=e=>e&&typeof e==='object'?{model:String(e.model||'').slice(0,200),provider:String(e.provider||'').slice(0,200),thinkingLevel:String(e.thinkingLevel||'off').slice(0,20),serviceTier:['standard','fast'].includes(e.serviceTier)?e.serviceTier:'unknown',tierConfirmed:e.tierConfirmed===true}:null;
+  const config=m=>({serviceTier:m?.serviceTier==='fast'?'fast':'standard',serviceTiers:cleanTiers(m?.serviceTiers),execution:execution(m?.execution),capabilities:(Array.isArray(m?.capabilities)?m.capabilities:[]).filter(x=>['skills','mcp','name','service-tier'].includes(x)),skills:(Array.isArray(m?.skills)?m.skills:[]).slice(0,500).filter(x=>typeof x?.name==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(x.name)).map(x=>({name:x.name,description:String(x.description||'').slice(0,1024)})),model:String(m?.model||'').slice(0,300),thinkingLevel:String(m?.thinkingLevel||'off'),models:(Array.isArray(m?.models)?m.models:[]).slice(0,1000).filter(x=>typeof x.provider==='string'&&typeof x.id==='string').map(x=>({provider:x.provider.slice(0,200),id:x.id.slice(0,200),name:String(x.name||x.id).slice(0,200),serviceTiers:cleanTiers(x.serviceTiers),thinkingLevels:(Array.isArray(x.thinkingLevels)?x.thinkingLevels:[]).filter(x=>['off','minimal','low','medium','high','xhigh','max'].includes(x))})),modelsTruncated:!!m?.modelsTruncated});
   const pageMeta=p=>({history:{before:String(p.history?.before||'').slice(0,500),hasMore:p.history?.hasMore===true},epoch:Number(p.epoch)||0,activeTurnId:String(p.activeTurnId||''),turns:(Array.isArray(p.turns)?p.turns:[]).slice(-100).map(t=>({id:String(t.id||''),startedAt:Number(t.startedAt)||0,finishedAt:Number(t.finishedAt)||null,outputTokens:Math.max(0,Number(t.outputTokens)||0),generationMs:Math.max(0,Number(t.generationMs)||0)}))});
   const syncStream=crypto.randomUUID();
   const snapshot=s=>({type:'snapshot',sessionId:s.meta.id,status:s.socket?s.status:'offline',connected:!!s.socket,messages:s.messages,truncated:s.truncated,configuration:s.configuration,...s.page,checkpoint:checkpoint(syncStream+':'+s.meta.id+':'+s.syncId,s.page.epoch,s.messages)});
@@ -169,7 +172,7 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
       if(req.method==='POST'&&u.pathname==='/api/transcribe'){
         if(speechBusy)return json(res,429,{error:'Предыдущая запись ещё распознаётся'});
         speechBusy=true;const controller=new AbortController();res.on('close',()=>{if(!res.writableEnded)controller.abort();});
-        try{let bytes=0;const chunks=[];for await(const chunk of req){bytes+=chunk.length;if(bytes>3*1024*1024)throw Error('Запись слишком большая');chunks.push(chunk);}const body=JSON.parse(Buffer.concat(chunks));if(body.sampleRate!==16000)throw Error('Ожидается PCM16 mono 16000 Hz');const data=audioBytes(body.audio);return json(res,200,await speechTranscribe(data,{signal:controller.signal}));}
+        try{const binary=String(req.headers['content-type']||'').split(';')[0]==='application/octet-stream',cap=binary?MAX_AUDIO_BYTES:Math.ceil(MAX_AUDIO_BYTES/3)*4+4096;if(Number(req.headers['content-length'])>cap)throw Error('Recording is too large');let bytes=0;const chunks=[];for await(const chunk of req){bytes+=chunk.length;if(bytes>cap)throw Error('Recording is too large');chunks.push(chunk);}const payload=Buffer.concat(chunks);let data;if(binary){if(req.headers['x-audio-sample-rate']!=='16000')throw Error('Expected PCM16LE mono 16000 Hz');data=validateAudio(payload);}else{const body=JSON.parse(payload);if(body.sampleRate!==16000)throw Error('Expected PCM16LE mono 16000 Hz');data=audioBytes(body.audio);}return json(res,200,await speechTranscribe(data,{signal:controller.signal}));}
         catch(e){return json(res,400,{error:String(e.message||'Ошибка диктовки').slice(0,500)});}finally{speechBusy=false;}
       }
       if(req.method!=='GET')return json(res,405,{error:'Method not allowed'});

@@ -2,10 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {Worker} from 'node:worker_threads';
-export const MAX_AUDIO_BYTES=16000*2*60;
+export const MAX_AUDIO_SECONDS=600;
+export const MAX_AUDIO_BYTES=16000*2*MAX_AUDIO_SECONDS;
+export function validateAudio(data){if(!Buffer.isBuffer(data)||data.length<3200||data.length>MAX_AUDIO_BYTES||data.length%2)throw Error('Recording must be between 0.1 seconds and 10 minutes');return data;}
 export function audioBytes(value){
- if(typeof value!=='string'||value.length>Math.ceil(MAX_AUDIO_BYTES/3)*4||value.length%4!==0||! /^[A-Za-z0-9+/]*={0,2}$/.test(value))throw Error('Некорректное аудио');
- const data=Buffer.from(value,'base64');if(data.length<3200||data.length>MAX_AUDIO_BYTES||data.length%2||data.toString('base64')!==value)throw Error('Запись должна длиться от 0,1 до 60 секунд');return data;
+ if(typeof value!=='string'||value.length>Math.ceil(MAX_AUDIO_BYTES/3)*4||value.length%4!==0||! /^[A-Za-z0-9+/]*={0,2}$/.test(value))throw Error('Invalid audio encoding');
+ const data=Buffer.from(value,'base64');if(data.toString('base64')!==value)throw Error('Invalid audio encoding');return validateAudio(data);
 }
 /** Reuse installed Orca's native engine and model files; never changes Orca settings or downloads models. */
 export function speechConfig(){
@@ -21,7 +23,8 @@ export async function transcribe(audio,{signal,config=speechConfig()}={}){
  if(signal?.aborted)throw Error('Распознавание отменено');
  const worker=new Worker(new URL('./speech-worker.mjs',import.meta.url),{execArgv:[],workerData:{...config,audio}});
  try{return await new Promise((resolve,reject)=>{
-  const timer=setTimeout(()=>reject(Error('Распознавание превысило 90 секунд')),90000);
+  const timeout=180000+Math.ceil(audio.length/32000)*500;
+  const timer=setTimeout(()=>reject(Error('Transcription timed out')),timeout);
   const abort=()=>reject(Error('Распознавание отменено'));signal?.addEventListener('abort',abort,{once:true});
   const finish=(error,value)=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);error?reject(error):resolve(value);};
   worker.once('error',e=>finish(e));worker.once('exit',code=>{if(code)finish(Error('Движок диктовки завершился с ошибкой'));});

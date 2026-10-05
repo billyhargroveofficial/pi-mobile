@@ -52,10 +52,10 @@ public final class HttpApi {
         }
     }
 
-    public String transcribe(String baseUrl,String token,byte[] audio)throws Exception {
-        JSONObject body=new JSONObject().put("sampleRate",16000).put("audio",java.util.Base64.getEncoder().encodeToString(audio));
-        Request request=new Request.Builder().url(EndpointPolicy.apiUrl(baseUrl,"/api/transcribe")).header("Authorization","Bearer "+token).post(okhttp3.RequestBody.create(body.toString(),okhttp3.MediaType.get("application/json"))).build();
-        try(Response response=client.newBuilder().readTimeout(100,TimeUnit.SECONDS).callTimeout(110,TimeUnit.SECONDS).build().newCall(request).execute()){String value=bodyString(response);if(!response.isSuccessful())throw failure(response,value);return new JSONObject(value).getString("text");}
+    public String transcribe(String baseUrl,String token,java.io.File audio)throws Exception {
+        if(!audio.isFile()||audio.length()<3200||audio.length()>16000L*2*600)throw new IOException("Recording must be between 0.1 seconds and 10 minutes");
+        Request request=new Request.Builder().url(EndpointPolicy.apiUrl(baseUrl,"/api/transcribe")).header("Authorization","Bearer "+token).header("X-Audio-Sample-Rate","16000").post(okhttp3.RequestBody.create(audio,okhttp3.MediaType.get("application/octet-stream"))).build();
+        try(Response response=client.newBuilder().writeTimeout(90,TimeUnit.SECONDS).readTimeout(590,TimeUnit.SECONDS).callTimeout(600,TimeUnit.SECONDS).build().newCall(request).execute()){String value=bodyString(response);if(!response.isSuccessful())throw failure(response,value);return new JSONObject(value).getString("text");}
     }
 
     public Catalog fetchCatalog(String baseUrl, String token) throws IOException {

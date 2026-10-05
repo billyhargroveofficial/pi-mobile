@@ -240,12 +240,13 @@ public final class PiClient extends WebSocketListener {
         return requestId;
     }
 
-    @Nullable public String configure(String sessionId, String provider, String modelId, String thinkingLevel) {
+    @Nullable public String configure(String sessionId,String provider,String modelId,String thinkingLevel){return configure(sessionId,provider,modelId,thinkingLevel,null);}
+    @Nullable public String configure(String sessionId, String provider, String modelId, String thinkingLevel,String serviceTier) {
         WebSocket ws=socket;
         if(ws==null||state!=ConnectionState.CONNECTED)return null;
         String requestId=UUID.randomUUID().toString();
         try {
-            JSONObject frame=new JSONObject().put("type","command").put("sessionId",sessionId).put("requestId",requestId).put("command","configure").put("provider",provider).put("modelId",modelId).put("thinkingLevel",thinkingLevel);
+            JSONObject frame=new JSONObject().put("type","command").put("sessionId",sessionId).put("requestId",requestId).put("command","configure").put("provider",provider).put("modelId",modelId).put("thinkingLevel",thinkingLevel).put("serviceTier",serviceTier);
             if(!sendFrame(ws,frame.toString()))return null;
             registerPending(requestId,sessionId,false);return requestId;
         } catch(JSONException e){return null;}

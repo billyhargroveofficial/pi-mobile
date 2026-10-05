@@ -1,4 +1,9 @@
-# Pi Mobile protocol (v0.6.000 implementation contract)
+# Pi Mobile protocol (v0.6.001 implementation contract)
+
+## Additions in 0.6.001
+
+- Configure accepts optional `serviceTier: "standard" | "fast"`. Extension metadata advertises supported tiers per model and the active request's `execution` model/thinkingLevel/serviceTier/tierConfirmed. Preferences persist on the session branch, never globally. Fast requests `service_tier: "priority"`; only provider stream confirmation is reported as confirmed.
+- Transcription accepts PCM16LE mono binary `application/octet-stream` with `X-Audio-Sample-Rate: 16000`; legacy JSON/base64 remains supported. Maximum 600 seconds / 19,200,000 PCM bytes. Native recognition processes bounded chunks up to30 seconds.
 
 ## Additions in 0.6.000
 
@@ -16,7 +21,7 @@
 - `delete`: `{command:'delete',sessionId,requestId,confirm:true}`. Irreversible unlink of the server-discovered archive file. Refuses live/pending/unknown owners and incomplete inventory; checks no-follow regular file, header id/cwd and unchanged inode. No client file paths. ACK data type `deleted`.
 - `name`: validated non-empty `name`, up to200 chars; changes Pi session name, not Orca tab title. `mcp`: read command returning sanitized real adapter state with `observedAt`. Configuration advertises `capabilities` and bounded `skills` from Pi registry. Explicit `$skill` prefixes expand only known skills.
 - Prompt accepts optional `files:[{name,data:<canonical base64>}]`. Files and images together: ≤3 and ≤10MiB decoded. Gateway stores content-addressed regular files under private `uploads/` (0600; quota256MiB), adds their local paths to the prompt and removes binary file payload before forwarding to Pi. User-message presentation replaces these generated paths with `📎 filename`. No arbitrary file download route.
-- `POST /api/transcribe`: same bearer/origin rules; JSON `{sampleRate:16000,audio:<base64 PCM16LE mono>}`, 0.1–60 seconds, request ≤3MiB. Returns `{text}`. One recognition at a time (429 if busy); no Pi command is dispatched. Uses installed local Orca sherpa-onnx/Parakeet files in an ephemeral worker, not Orca's paired-mobile RPC or a cloud provider. No automatic audio retry, model download or settings mutation.
+- `POST /api/transcribe`: same bearer/origin rules; JSON `{sampleRate:16000,audio:<base64 PCM16LE mono>}`, 0.1–600 seconds, decoded PCM ≤19,200,000 bytes. Returns `{text}`. One recognition at a time (429 if busy); no Pi command is dispatched. Uses installed local Orca sherpa-onnx/Parakeet files in an ephemeral worker, not Orca's paired-mobile RPC or a cloud provider. No automatic audio retry, model download or settings mutation.
 - Android renders progress messages separately between contiguous tool segments. Settled segments collapse once and remain manually expandable. ACK checks mean acceptance, never task completion/read-by-human. Local unconfirmed text receipts survive screen re-entry without replay; binary drafts are not persisted. If the 40-message tail contains no user prompt, preceding pages are fetched until user context appears.
 
 
