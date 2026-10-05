@@ -6,7 +6,7 @@
     "app-shell": ["PiApp"],
     "catalog": ["MainActivity", "ui/CatalogAdapter", "ui/UsageCards", "ui/ArchiveSheet"],
     "chat": ["ChatActivity", "ui/MessageAdapter", "ui/ChatLoading", "ui/CompactComposer", "ui/DeliverySheet", "ui/EffortPopup", "ui/EffortSlider", "ui/ImageViewer", "ui/MarkdownPreview", "ui/MarkdownRenderer", "ui/ModelSettingsSheet", "ui/SkillSuggestions", "ui/StatusUi", "ui/TierToggle", "ui/WorkingBadge", "ui/WorkLogView", "ui/WorkSurface"],
-    "orchestration": ["OrchestrationActivity", "ui/OrchestrationAdapter", "ui/OrchestrationEntry"],
+    "orchestration": ["OrchestrationActivity", "ui/OrchestrationEntry"],
     "voice": ["ui/DictationRecorder", "ui/VoiceWaveform"],
     "updater": ["ui/AppUpdates"],
     "ui-foundation": ["ui/BubbleColors", "ui/ExpressiveMotion", "ui/FadeTextView", "ui/SwipeAction", "ui/SystemInsets"]

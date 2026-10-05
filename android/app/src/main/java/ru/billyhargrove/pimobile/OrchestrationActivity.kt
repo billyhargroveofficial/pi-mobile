@@ -226,9 +226,8 @@ class OrchestrationActivity : AppCompatActivity() {
                 Column(Modifier.weight(1f).padding(start = 12.dp, end = 8.dp)) {
                     Text(intent.getStringExtra("title").orEmpty(), color = color(R.color.text_primary),
                         fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Row(Modifier.horizontalScroll(rememberScrollState())) {
-                        Text(subtitle, color = color(R.color.text_secondary), fontSize = 12.sp, maxLines = 1)
-                    }
+                    Text(subtitle, color = color(R.color.text_secondary), fontSize = 12.sp,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 HeaderAction(R.drawable.ic_refresh, "Refresh orchestration") { refresh(false) }
             }
