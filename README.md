@@ -62,12 +62,12 @@
 
 - `extension/` — история активной ветки, live-события, адресные команды, навыки и MCP.
 - `server/` — авторизация, Orca inventory, lifecycle сессий, сохранённая история и картинки.
-- `android/` — Java/native Android views, Material 3 Expressive, RecyclerView, OkHttp, Android Keystore.
-- [Протокол](docs/protocol.md) · [Проверки релиза](docs/verification.md) · [Установка и обновление](docs/setup.md).
+- `android/` — выпущенная версия на Java/native Android views, Material 3 Expressive, RecyclerView, OkHttp, Android Keystore. Локально идёт поэтапная миграция на Kotlin/Compose; выпускаемая версия пока не изменена.
+- [Карта архитектуры](docs/architecture.md) · [владельцы капсул](architecture/capsules/README.md) · [визуальный baseline](docs/ui-baseline/README.md) · [Протокол](docs/protocol.md) · [Проверки релиза](docs/verification.md) · [Установка и обновление](docs/setup.md).
 
 ## Долговременная цель миграции
 
-По просьбе Billy поставлен отдельный [goal Kotlin/Compose и agent-native архитектуры](loop-develop/current-todo/001-todo.md). Миграция ещё не начата: сначала визуальный и функциональный baseline, затем небольшие проверяемые слайсы с сохранением удачного дизайна. [Правила для агентов](AGENTS.md) · [жизненный цикл goal](loop-develop/README.md).
+По просьбе Billy выполняется [goal Kotlin/Compose и agent-native архитектуры](loop-develop/current-todo/001-todo.md). В локальном рабочем дереве закреплены десять эталонных синтетических UI-снимков, владельцы классов и проверки границ, начато выделение host-контрактов; отдельный Kotlin/Compose-слайс пока в работе. **Выпущенная версия остаётся 0.6.003. Новое обновление, публикация и деплой отложены до проверки Billy.** [Правила для агентов](AGENTS.md) · [жизненный цикл goal](loop-develop/README.md).
 
 ## Разработка
 
@@ -75,7 +75,7 @@
 
 ```sh
 npm ci
-npm test
+npm run quality
 cd android
 export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
 export ANDROID_HOME="$HOME/Library/Android/sdk"

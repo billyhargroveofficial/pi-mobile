@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import {publicMessages} from '../extension/mobile-orchestration.ts';
+import {publicMessages} from '../contracts/agent-transcript.mjs';
 const idOK=s=>typeof s==='string'&&/^[a-zA-Z0-9._:-]{1,160}$/.test(s);
 const clip=(s,n=300)=>typeof s==='string'?s.slice(0,n):'';
 const num=n=>Number.isFinite(Number(n))?Math.max(0,Number(n)):0;

@@ -1,6 +1,6 @@
 # 001 — Agent-native Pi Mobile, Kotlin/Compose и доказуемая визуальная преемственность
 
-**Статус:** цель поставлена 5 октября 2026; реализация миграции не начата. Это долговременный roadmap с последовательными milestone; первый исполнитель начинает с M0, а не переписывает всё за один заход.
+**Статус:** цель поставлена 5 октября 2026; реализация идёт локально, цель **не выполнена**. M0: закреплены десять эталонных синтетических UI-снимков с SHA256 (не полноценные pixel-golden tests); остаются дополнительные сценарии и замеры. M1: введены карта владельцев, agent-readable индекс и fail-closed проверки зависимостей; выделены чистый host-контракт и проекции с тестами. Kotlin/Compose-слайс orchestration — отдельно в работе, ещё не интегрирован. Выпущенная версия 0.6.003 не изменена. **Не выпускать обновление, не пушить и не деплоить до утренней проверки Billy.**
 
 ## Goal
 
@@ -10,7 +10,7 @@
 
 **Decision question:** как перенести Java/XML Android и нынешний монолит gateway/extension в расширяемые feature-капсулы, не получив большой невыпускаемый rewrite и визуальную деградацию?
 
-**Проверенное локальное состояние:** `pi-mobile` commit `3c08e10` / APK `0.6.003` (versionCode10). Android — один Gradle-модуль `android/app`, Java Views/XML: `ChatActivity`, `MainActivity`, `MessageAdapter`, `OrchestrationActivity`, `net/PiClient`, `net/HttpApi`, приватные кеши и настройки. Gateway — Node `server/gateway.mjs`, Pi-bridge — `extension/mobile.ts`; контракт в `docs/protocol.md`. Тестовый baseline: 64 Node, 131 JVM и 40 UI на API35. Действующий сертификат Android сохраняется; версии `0.6.000 → 0.6.001 → … → 0.6.100` с возрастающим Android versionCode. Reference architecture только для принципов: `/Users/billy/repos/nareshka-mono/{AGENTS.md,llms.txt,docs/architecture.md,domains/README.md,loop-develop/README.md}`. Не переносить оттуда React, Go, DB, деплой и проектные политики Николая.
+**Проверенное выпущенное состояние:** `pi-mobile` commit `3c08e10` / APK `0.6.003` (versionCode10). Android — один Gradle-модуль `android/app`, Java Views/XML: `ChatActivity`, `MainActivity`, `MessageAdapter`, `OrchestrationActivity`, `net/PiClient`, `net/HttpApi`, приватные кеши и настройки. Gateway — Node `server/gateway.mjs`, Pi-bridge — `extension/mobile.ts`; контракт в `docs/protocol.md`. Тестовый baseline: 64 Node, 131 JVM и 40 UI на API35. Действующий сертификат Android сохраняется; версии `0.6.000 → 0.6.001 → … → 0.6.100` с возрастающим Android versionCode. Reference architecture только для принципов: `/Users/billy/repos/nareshka-mono/{AGENTS.md,llms.txt,docs/architecture.md,domains/README.md,loop-develop/README.md}`. Не переносить оттуда React, Go, DB, деплой и проектные политики Николая.
 
 **Существующий UI — обязательный baseline, а не объект тотальной замены:** нейтральная палитра и настраиваемый цвет пузырей; единая Usage-панель; один ряд статус/модель/effort/tier; диалог с раздельными progress и tool-группами, ручной zoom картинок; composer, диктовка, каталог, история, settings и новые workflow/agent drill-down. Исходные снимки эмулятора в игнорируемых `artifacts/design-0.6.001/` и `artifacts/design-0.6.003/`; перенести проверенные эталоны в воспроизводимый test/evidence pipeline до рефакторинга.
 
@@ -20,7 +20,7 @@
 
 **Статус-кво:** оставить Java/XML проще сейчас, но дальнейшие функции продолжают раздувать Activity, адаптер, gateway и межслойную связанность.
 
-**Минимальный безопасный путь:** сначала инвентаризация поведения, design tokens и контрактов, затем Kotlin/Compose вместе с View-interop в вертикальном слайсе; каждый milestone сохраняет исполняемый release и убирает заменённый legacy-код после parity-gate.
+**Минимальный безопасный путь:** сначала инвентаризация поведения, design tokens и контрактов, затем Kotlin/Compose вместе с View-interop в вертикальном слайсе; каждый milestone сохраняет собираемое приложение и убирает заменённый legacy-код после parity-gate. Новое обновление не выпускать до отдельного разрешения Billy.
 
 **Альтернатива:** одномоментно переписать Android и Node gateway. Она быстрее выглядит на схеме, но ухудшает проверяемость, ломает подпись/состояние/UX при откате и скрывает регрессии; отклонена. Изменить рекомендацию можно только при измеренном техническом блокере interop либо проверенной невозможности обеспечить паритет инкрементально. Confidence высокая для процесса, конкретные module/API решения исследовать на M0 против **актуальных официальных Android/Compose документов**, а не угадывать версии заранее.
 
@@ -59,10 +59,10 @@ Android thin app shell → features/{catalog,chat,orchestration,history,settings
 
 ## Verification Commands / gates
 
-- До правок: `npm test`; `cd android && ./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest` с JDK17/SDK. Проверить чистый `git status` и baseline APK certificate/versionCode.
+- До правок: 64 Node, 131 JVM и 40 UI прошли на выпущенном baseline; для миграции теперь `npm run quality`, затем `cd android && ./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest` с JDK17/SDK. Проверять именно новый локальный результат; сохранённый старый успех не доказывает новый. Проверить чистый `git status` и baseline APK certificate/versionCode.
 - После каждого слайса: focused Node/JVM/UI tests + полный baseline; API35 emulator via ADB/UiAutomator, снимки экрана и визуальное сравнение нормального/360dp/1.3×/тёмного состояния, IME и голосового/медийного journey. `git diff --check` и направленные architecture gates.
 - При изменении gateway/extension: реальный локальный authenticated REST/WSS smoke, unauthorized/origin/path tests, проверка старого клиента/нового сервера; не отправлять платный prompt и не делать `/reload` активной Pi-сессии.
-- Для релиза: проверка signed APK package/versionCode/cert/SHA256, upgrade поверх предыдущего APK без стирания данных, проверка ссылки релиза и только затем отправка в правильный чат с точным списком ограничений.
+- Для релиза **после разрешения**: проверка signed APK package/versionCode/cert/SHA256, upgrade поверх предыдущего APK без стирания данных, проверка ссылки релиза и только затем отправка в правильный чат с точным списком ограничений.
 
 ## Done Means
 

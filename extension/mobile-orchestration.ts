@@ -1,4 +1,5 @@
 // Observes the installed runner's read-only accessor. Never calls spawn/abort/consumeResult.
+import {publicMessages} from '../contracts/agent-transcript.mjs';
 const key=Symbol.for('pi-subagents:manager');
 const clip=(v:any,n=300)=>typeof v==='string'?v.slice(0,n):'';
 const num=(v:any)=>Number.isFinite(Number(v))?Math.max(0,Number(v)):0;
@@ -27,18 +28,6 @@ export function projectState(state:any){
  // Nested children inherit workflow grouping from their recorded parent, never by timing guesses.
  for(let n=0;n<10;n++)for(const a of agents)if(!a.workflowId&&a.parentId){const parent:any=byId.get(a.parentId);if(parent?.workflowId)a.workflowId=parent.workflowId;}
  return {available:true,liveAvailable:true,observedAt:Date.now(),agents,workflows,truncated};
-}
-export function publicMessages(raw:any[],before=0){
- const end=before>0?Math.min(Math.floor(before),raw.length):raw.length,start=Math.max(0,end-60),rows:any[]=[];let truncated=false;
- const safeText=(s:any)=>{const str=typeof s==='string'?s:'';if(str.length>16000)truncated=true;return str.slice(0,16000);};
- for(let i=start;i<end;i++){const m=raw[i];if(!['user','assistant','toolResult'].includes(m?.role))continue;const blocks=typeof m.content==='string'?[{type:'text',text:m.content}]:Array.isArray(m.content)?m.content:[];
-  const text=blocks.filter((b:any)=>b.type==='text').map((b:any)=>safeText(b.text)).join('\n');const calls=blocks.filter((b:any)=>b.type==='toolCall');
-  if(text||m.role==='toolResult')rows.push({id:m.role==='toolResult'&&m.toolCallId?'tool:'+m.toolCallId:'message:'+i,role:m.role,text:safeText(text),images:[],turnId:'agent',phase:m.role==='assistant'&&(calls.length||i<raw.length-1)?'work':'answer',toolName:clip(m.toolName),toolStatus:m.isError?'error':'done'});
-  for(const call of calls){let args='';try{args=JSON.stringify(call.arguments||{});}catch{}rows.push({id:'tool:'+call.id,role:'toolResult',text:'Arguments\n'+safeText(args),preview:args.slice(0,2000),toolName:clip(call.name),toolStatus:'running',images:[],turnId:'agent'});}
-  if(blocks.some((b:any)=>b.type==='image'))rows.push({id:'image:'+i,role:'custom',text:'Image attachment · unavailable in agent inspection',images:[],turnId:'agent'});
- }
- const merged=new Map<string,any>();for(const row of rows){const previous=merged.get(row.id);merged.set(row.id,previous&&row.role==='toolResult'?{...row,preview:previous.preview||'',text:previous.text+'\n\nResult\n'+row.text}:row);}
- return {messages:[...merged.values()],before:start,hasMore:start>0,truncated};
 }
 export class MobileOrchestration {
  private state:any;private owner='';private agents=new Map<string,any>();private workflows=new Map<string,any>();private details=new Map<string,any>();private pending=new Map<string,any>();private cacheBytes=0;

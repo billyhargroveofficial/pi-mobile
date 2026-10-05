@@ -7,66 +7,17 @@ import {WebSocketServer,WebSocket} from 'ws';
 import {readOrca} from './orca.mjs';
 import {Archive} from './archive.mjs';
 import {Lifecycle} from './lifecycle.mjs';
-import {decodeFile,attachFiles,attachmentDisplay} from './attachments.mjs';
+import {attachFiles,attachmentDisplay} from './attachments.mjs';
+import {MAX_IMAGE,safeId,decodeImage,validateCommand} from './command-policy.mjs';
+export {MAX_IMAGE,decodeImage,validateCommand};
 import {audioBytes,validateAudio,MAX_AUDIO_BYTES,transcribe} from './speech.mjs';
 import {cachedUsage,readUsage} from './usage.mjs';
-import {checkpoint,resumeDelta} from './conversation-sync.mjs';
+import {resumeDelta} from './conversation-sync.mjs';
+import {configuration,pageMetadata,sessionSnapshot,sessionChange} from './session-projection.mjs';
 import {OrchestrationStore,cleanOrchestration,cleanAgentDetail} from './orchestration.mjs';
 
-export const MAX_IMAGE=10*1024*1024;
 const MAX_FRAME=32*1024*1024;
-const safeId=x=>typeof x==='string'&&/^[a-zA-Z0-9._:-]{1,160}$/.test(x);
 const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
-export function decodeImage(image){
-  if(!image||!['image/png','image/jpeg','image/webp'].includes(image.mimeType)||typeof image.data!=='string'||image.data.length>Math.ceil(MAX_IMAGE/3)*4||image.data.length%4!==0||!/^[A-Za-z0-9+/]*={0,2}$/.test(image.data))throw Error('Invalid image');
-  const b=Buffer.from(image.data,'base64');
-  if(!b.length||b.length>MAX_IMAGE)throw Error('Image exceeds 10MB');
-  if(b.toString('base64')!==image.data)throw Error('Invalid base64 encoding');
-  const ok=image.mimeType==='image/png'?b.subarray(0,8).equals(Buffer.from('89504e470d0a1a0a','hex')):image.mimeType==='image/jpeg'?b[0]===255&&b[1]===216&&b[2]===255:b.toString('ascii',0,4)==='RIFF'&&b.toString('ascii',8,12)==='WEBP';
-  if(!ok)throw Error('Image signature mismatch');
-  return b;
-}
-export function validateCommand(c){
-  if(!c||!safeId(c.requestId)||!safeId(c.sessionId)||!['prompt','abort','configure','history','document','resume','mcp','name','new','close','delete'].includes(c.command))throw Error('Invalid command');
-  if(c.command==='new'){
-    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(c.sessionId)||typeof c.workspaceId!=='string'||!c.workspaceId||c.workspaceId.length>4000||/[\x00-\x1f]/.test(c.workspaceId))throw Error('Invalid new session');
-    return {type:'command',command:'new',sessionId:c.sessionId,requestId:c.requestId,workspaceId:c.workspaceId};
-  }
-  if(c.command==='close'||c.command==='delete'){
-    if(c.confirm!==true)throw Error('Confirmation required');
-    return {type:'command',command:c.command,sessionId:c.sessionId,requestId:c.requestId,confirm:true,force:c.force===true};
-  }
-  if(c.command==='name'){
-    if(typeof c.name!=='string'||!c.name.trim()||c.name.length>200||/[\x00-\x1f]/.test(c.name))throw Error('Invalid session name');
-    return {type:'command',command:'name',sessionId:c.sessionId,requestId:c.requestId,name:c.name.trim()};
-  }
-  if(c.command==='history'){
-    if(typeof c.before!=='string'||!c.before||c.before.length>500||!Number.isInteger(c.limit??40)||(c.limit??40)<1||(c.limit??40)>40)throw Error('Invalid history cursor');
-    return {type:'command',command:'history',sessionId:c.sessionId,requestId:c.requestId,before:c.before,limit:c.limit??40};
-  }
-  if(c.command==='document'){
-    if(typeof c.path!=='string'||c.path.length>2000||! /\.(md|markdown)$/i.test(c.path)||/[\x00-\x1f]/.test(c.path))throw Error('Invalid Markdown path');
-    return {type:'command',command:'document',sessionId:c.sessionId,requestId:c.requestId,path:c.path};
-  }
-  if(c.command==='abort'||c.command==='resume'||c.command==='mcp')return {type:'command',sessionId:c.sessionId,requestId:c.requestId,command:c.command};
-  if(c.command==='configure'){
-    const text=x=>typeof x==='string'&&x.length>0&&x.length<=200&&!/[\x00-\x1f]/.test(x);
-    if((c.provider!==undefined||c.modelId!==undefined)&&(!text(c.provider)||!text(c.modelId)))throw Error('Invalid model');
-    if(c.thinkingLevel!==undefined&&!['off','minimal','low','medium','high','xhigh','max'].includes(c.thinkingLevel))throw Error('Invalid effort');
-    if(c.serviceTier!==undefined&&!['standard','fast'].includes(c.serviceTier))throw Error('Invalid service tier');
-    if(c.provider===undefined&&c.thinkingLevel===undefined&&c.serviceTier===undefined)throw Error('Empty configuration');
-    return {type:'command',sessionId:c.sessionId,requestId:c.requestId,command:'configure',...(c.provider!==undefined?{provider:c.provider,modelId:c.modelId}:{}),...(c.thinkingLevel!==undefined?{thinkingLevel:c.thinkingLevel}:{}),...(c.serviceTier!==undefined?{serviceTier:c.serviceTier}:{})};
-  }
-  if(typeof c.text!=='string'||c.text.length>100000||!Array.isArray(c.images??[])||(c.images?.length||0)>3)throw Error('Invalid prompt');
-  const images=c.images||[]; let size=0;
-  for(const image of images)size+=decodeImage(image).length;
-  const files=c.files??[];if(!Array.isArray(files)||files.length+images.length>3)throw Error('Не более 3 вложений');
-  for(const file of files)size+=decodeFile(file).length;
-  if(size>MAX_IMAGE)throw Error('Total attachment size exceeds 10MB');
-  if(!c.text.trim()&&!images.length&&!files.length)throw Error('Empty prompt');
-  if(c.behavior!==undefined&&!['steer','followUp'].includes(c.behavior))throw Error('Invalid behavior');
-  return {type:'command',sessionId:c.sessionId,requestId:c.requestId,command:'prompt',text:c.text,images:images.map(i=>({type:'image',mimeType:i.mimeType,data:i.data})),behavior:c.behavior||'followUp',...(files.length?{files:files.map(f=>({name:f.name,data:f.data}))}:{})};
-}
 
 export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=true,token:providedToken,orcaReader=readOrca,archiveList,archiveLaunch,newLaunch,closeTerminal,speechTranscribe=transcribe,usageReader=readUsage,orchestrationTmpRoot,basePath=''}={}){
   if(!dataDir)throw Error('dataDir required');
@@ -97,18 +48,9 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
   }
   const wss=new WebSocketServer({noServer:true,maxPayload:16*1024*1024,perMessageDeflate:false});
   const broadcastCatalog=()=>{const c=catalog();for(const ws of wss.clients)send(ws,c);};
-  const cleanTiers=values=>(Array.isArray(values)?values:[]).filter(x=>['standard','fast'].includes(x));
-  const execution=e=>e&&typeof e==='object'?{model:String(e.model||'').slice(0,200),provider:String(e.provider||'').slice(0,200),thinkingLevel:String(e.thinkingLevel||'off').slice(0,20),serviceTier:['standard','fast'].includes(e.serviceTier)?e.serviceTier:'unknown',tierConfirmed:e.tierConfirmed===true}:null;
-  const config=m=>({serviceTier:m?.serviceTier==='fast'?'fast':'standard',serviceTiers:cleanTiers(m?.serviceTiers),execution:execution(m?.execution),capabilities:(Array.isArray(m?.capabilities)?m.capabilities:[]).filter(x=>['skills','mcp','name','service-tier'].includes(x)),skills:(Array.isArray(m?.skills)?m.skills:[]).slice(0,500).filter(x=>typeof x?.name==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(x.name)).map(x=>({name:x.name,description:String(x.description||'').slice(0,1024)})),model:String(m?.model||'').slice(0,300),thinkingLevel:String(m?.thinkingLevel||'off'),models:(Array.isArray(m?.models)?m.models:[]).slice(0,1000).filter(x=>typeof x.provider==='string'&&typeof x.id==='string').map(x=>({provider:x.provider.slice(0,200),id:x.id.slice(0,200),name:String(x.name||x.id).slice(0,200),serviceTiers:cleanTiers(x.serviceTiers),thinkingLevels:(Array.isArray(x.thinkingLevels)?x.thinkingLevels:[]).filter(x=>['off','minimal','low','medium','high','xhigh','max'].includes(x))})),modelsTruncated:!!m?.modelsTruncated});
-  const pageMeta=p=>({history:{before:String(p.history?.before||'').slice(0,500),hasMore:p.history?.hasMore===true},epoch:Number(p.epoch)||0,activeTurnId:String(p.activeTurnId||''),turns:(Array.isArray(p.turns)?p.turns:[]).slice(-100).map(t=>({id:String(t.id||''),startedAt:Number(t.startedAt)||0,finishedAt:Number(t.finishedAt)||null,outputTokens:Math.max(0,Number(t.outputTokens)||0),generationMs:Math.max(0,Number(t.generationMs)||0)}))});
   const syncStream=crypto.randomUUID();
-  const snapshot=s=>({type:'snapshot',sessionId:s.meta.id,status:s.socket?s.status:'offline',connected:!!s.socket,messages:s.messages,truncated:s.truncated,configuration:s.configuration,...s.page,checkpoint:checkpoint(syncStream+':'+s.meta.id+':'+s.syncId,s.page.epoch,s.messages)});
-  const broadcastSnapshot=(s,previous,configChanged=false)=>{for(const ws of wss.clients)if(ws.sessionId===s.meta.id){
-    if(!previous){send(ws,snapshot(s));continue;}
-    const old=new Map(previous.map(m=>[m.id,JSON.stringify(m)])),ids=new Set(s.messages.map(m=>m.id));
-    const overlap=previous.findIndex(m=>m.id===s.messages[0]?.id);
-    send(ws,{type:'messages',sessionId:s.meta.id,checkpoint:checkpoint(syncStream+':'+s.meta.id+':'+s.syncId,s.page.epoch,s.messages),order:s.messages.map(m=>m.id),status:s.socket?s.status:'offline',connected:!!s.socket,truncated:s.truncated,turns:s.page.turns,activeTurnId:s.page.activeTurnId,epoch:s.page.epoch,...(configChanged?{configuration:s.configuration}:{}),messages:s.messages.filter(m=>old.get(m.id)!==JSON.stringify(m)),removedIds:previous.filter((m,i)=>overlap>=0&&i>=overlap&&!ids.has(m.id)).map(m=>m.id)});
-  }};
+  const snapshot=s=>sessionSnapshot(s,syncStream);
+  const broadcastSnapshot=(s,previous,configChanged=false)=>{for(const ws of wss.clients)if(ws.sessionId===s.meta.id)send(ws,sessionChange(s,previous,syncStream,configChanged));};
   function normalize(id,messages,activeTurn=''){
     let truncated=messages.length>200;
     const tail=messages.slice(-200),results=new Map(),emitted=new Set(),lastAssistant=new Map();
@@ -269,14 +211,14 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
           id=m.id;
           const meta={id,title:String(m.title||'').slice(0,200),cwd:m.cwd,terminalId:String(m.terminalId||''),workspaceId:String(m.workspaceId||''),model:String(m.model||'')};
           const normalized=normalize(id,packet.messages,packet.status==='running'?String(packet.activeTurnId||''):'');
-          const s={meta,syncId:crypto.randomUUID(),configuration:config(m),page:pageMeta(packet),socket,status:packet.status==='running'?'running':'idle',...normalized,truncated:!!packet.truncated||normalized.truncated};sessions.set(id,s);broadcastCatalog();broadcastSnapshot(s);
+          const s={meta,syncId:crypto.randomUUID(),configuration:configuration(m),page:pageMetadata(packet),socket,status:packet.status==='running'?'running':'idle',...normalized,truncated:!!packet.truncated||normalized.truncated};sessions.set(id,s);broadcastCatalog();broadcastSnapshot(s);
         }else if(packet.type==='snapshot'){
           if(!id||packet.id!==id||!Array.isArray(packet.messages))throw Error('Wrong session');const s=sessions.get(id);if(s?.socket!==socket)throw Error('Wrong owner');
-          const old=s.status,previous=s.messages,oldEpoch=s.page.epoch;s.page=pageMeta(packet); const normalized=normalize(id,packet.messages,packet.status==='running'?String(packet.activeTurnId||''):'');Object.assign(s,normalized,{status:packet.status==='running'?'running':'idle',truncated:!!packet.truncated||normalized.truncated});
+          const old=s.status,previous=s.messages,oldEpoch=s.page.epoch;s.page=pageMetadata(packet); const normalized=normalize(id,packet.messages,packet.status==='running'?String(packet.activeTurnId||''):'');Object.assign(s,normalized,{status:packet.status==='running'?'running':'idle',truncated:!!packet.truncated||normalized.truncated});
           const oldTitle=s.meta.title;
           if(packet.meta?.title!==undefined)s.meta.title=String(packet.meta.title).slice(0,200);
           if(packet.meta?.model!==undefined)s.meta.model=String(packet.meta.model).slice(0,200);
-          const nextConfig=config(packet.meta),configChanged=JSON.stringify(nextConfig)!==JSON.stringify(s.configuration);
+          const nextConfig=configuration(packet.meta),configChanged=JSON.stringify(nextConfig)!==JSON.stringify(s.configuration);
           s.configuration=nextConfig;
           broadcastSnapshot(s,oldEpoch===s.page.epoch?previous:null,configChanged);if(old!==s.status||configChanged||oldTitle!==s.meta.title)broadcastCatalog();
         }else if(packet.type==='orchestration'){
@@ -288,7 +230,7 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
             let data;
             if(packet.ok&&p.command==='agent_transcript'){data=cleanAgentDetail(packet.data);const s=sessions.get(id);if(s)orchestration.saveDetail(s.meta,data).catch(()=>{});}
             if(packet.ok&&p.command==='mcp'&&Array.isArray(packet.data?.servers))data={type:'mcp',observedAt:Number(packet.data.observedAt)||0,servers:packet.data.servers.slice(0,200).filter(x=>typeof x?.name==='string'&&['connected','not-connected','needs-auth','failed','cached','disabled','blocked'].includes(x.status)).map(x=>({name:x.name.slice(0,200),status:x.status,toolCount:Math.max(0,Number(x.toolCount)||0)}))};
-            if(packet.ok&&p.command==='history'&&Array.isArray(packet.data?.messages))data={type:'history',...normalize(id,packet.data.messages,sessions.get(id)?.page.activeTurnId||''),...pageMeta(packet.data)};
+            if(packet.ok&&p.command==='history'&&Array.isArray(packet.data?.messages))data={type:'history',...normalize(id,packet.data.messages,sessions.get(id)?.page.activeTurnId||''),...pageMetadata(packet.data)};
             if(data?.type==='history')delete data.activeTurnId;
             if(packet.ok&&p.command==='document'&&typeof packet.data?.text==='string'&&Buffer.byteLength(packet.data.text)<=1024*1024)data={type:'document',path:String(packet.data.path||'').slice(0,2000),text:packet.data.text};
             complete(packet.requestId,{ok:packet.ok===true,...(data?{data}:{}),...(packet.error?{error:String(packet.error).slice(0,500)}:{})});

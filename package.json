@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "start": "node server/index.mjs",
-    "test": "node --import ./scripts/host-runtime.mjs --test tests/*.test.mjs"
+    "test": "node --import ./scripts/host-runtime.mjs --test tests/*.test.mjs",
+    "check:architecture": "node tools/check-architecture.mjs",
+    "check:ui-baseline": "node tools/check-ui-baseline.mjs",
+    "quality": "npm test && npm run check:architecture && npm run check:ui-baseline"
   },
   "dependencies": {
     "ws": "8.21.0"

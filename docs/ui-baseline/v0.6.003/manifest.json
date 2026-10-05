@@ -1,0 +1,55 @@
+{
+  "origin": "Synthetic API35 UI tests, baseline v0.6.003",
+  "files": {
+    "attachment-thumbnail.png": {
+      "sha256": "1be66788ff8fd2441ebf3700c1b41c67e537d0648442265ed88a7c45e8aa629c",
+      "width": 945,
+      "height": 2100
+    },
+    "header-single-line.png": {
+      "sha256": "8d2f49b6fa557eb0493ce860291056bee2f0a311df4648ad8f4c67ce9913acc4",
+      "width": 1080,
+      "height": 2400
+    },
+    "orchestration-agents.png": {
+      "sha256": "c8c5c09aa015f84cfcaca047c83f4e9869296702d3b187e47991e39c6fbde197",
+      "width": 1080,
+      "height": 2400
+    },
+    "orchestration-conversation.png": {
+      "sha256": "bae2fa9164fac212f70252bf821e67be112506d05f5837c368a1c9f784026565",
+      "width": 1080,
+      "height": 2400
+    },
+    "orchestration-overview.png": {
+      "sha256": "52265e6dcc017b37e0db177fa5c37fc9bb3c5a04e4ccae4142b070ab468d120d",
+      "width": 1080,
+      "height": 2400
+    },
+    "overview-font130.png": {
+      "sha256": "41ecc87c6ba5018c4eda840694b17ef6638f0249d53ca6415f1ce77f88351161",
+      "width": 945,
+      "height": 2100
+    },
+    "settings-redesign.png": {
+      "sha256": "a33565f271a9734ace1873167f5ea441779bd60700b8c79d30a13d47c941bc20",
+      "width": 1080,
+      "height": 2400
+    },
+    "tier-picker.png": {
+      "sha256": "4bbdd616b67afd22f3fa11bcad6787f42689322a41406bdcb493ea37b1ba45fc",
+      "width": 1080,
+      "height": 2400
+    },
+    "usage-redesign.png": {
+      "sha256": "6d216861ddc04f00e326d45f0c631f389278417adf42f6728329f93a83e00611",
+      "width": 1080,
+      "height": 2400
+    },
+    "voice-recording.png": {
+      "sha256": "e987562e88a59d390223a1ffd53b7ee15a90e903edd842d73b040f41af20613f",
+      "width": 1080,
+      "height": 2400
+    }
+  }
+}

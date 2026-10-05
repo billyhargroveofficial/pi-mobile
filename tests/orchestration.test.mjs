@@ -1,5 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
-import {projectState,publicMessages,MobileOrchestration} from '../extension/mobile-orchestration.ts';
+import {projectState,MobileOrchestration} from '../extension/mobile-orchestration.ts';
+import {publicMessages} from '../contracts/agent-transcript.mjs';
 import {OrchestrationStore,cleanOrchestration,cleanAgentDetail} from '../server/orchestration.mjs';
 import {patchSource,insertion} from '../scripts/install-subagent-observer.mjs';
 import {createGateway} from '../server/gateway.mjs';import mobile from '../extension/mobile.ts';
