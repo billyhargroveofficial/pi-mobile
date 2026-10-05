@@ -1,4 +1,11 @@
-# Pi Mobile protocol (v0.6.001 implementation contract)
+# Pi Mobile protocol (v0.6.003 implementation contract)
+
+## Additions in 0.6.003
+
+- The authenticated, browser-Origin-rejecting gateway exposes `GET /api/sessions/:id/orchestration` and `GET /api/sessions/:id/orchestration/agents/:agentId?before=…`. No control endpoints. Session ownership comes from the already registered Pi bridge, never an arbitrary path supplied by Android.
+- Pi Mobile polls the installed `pi-subagents` 0.19.0 read-only observer every2s when loaded and sends sanitized workflow/agent state over its local Unix bridge. Workflow events are collapsed by stable index; phase/status/agent IDs come from actual runner state. The gateway stores bounded read-only snapshots and completed dialogue excerpts in its 0700 private directory, always responses `Cache-Control: no-store`.
+- Agent transcript inspection is a read-only internal Pi bridge command: bounded to60 messages per page; excludes thinking and system messages, retains prompts, text progress, tools and results; no raw scripts, credentials, controls or paths-as-API. HTTP reads are separately authorized and tied to a registered session. If observer is absent, scoped `.output` logs are a restricted historical fallback, marked `status: unknown`; ordinary workflow journals do not contain live phases, so no live state is invented.
+- Existing running Pi sessions must not be reloaded; this capability appears only after a safe idle `/reload` or fresh Pi process. The compatibility patch is version-specific and reversible.
 
 ## Additions in 0.6.001
 

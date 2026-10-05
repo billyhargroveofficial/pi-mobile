@@ -11,6 +11,7 @@ import {decodeFile,attachFiles,attachmentDisplay} from './attachments.mjs';
 import {audioBytes,validateAudio,MAX_AUDIO_BYTES,transcribe} from './speech.mjs';
 import {cachedUsage,readUsage} from './usage.mjs';
 import {checkpoint,resumeDelta} from './conversation-sync.mjs';
+import {OrchestrationStore,cleanOrchestration,cleanAgentDetail} from './orchestration.mjs';
 
 export const MAX_IMAGE=10*1024*1024;
 const MAX_FRAME=32*1024*1024;
@@ -67,7 +68,7 @@ export function validateCommand(c){
   return {type:'command',sessionId:c.sessionId,requestId:c.requestId,command:'prompt',text:c.text,images:images.map(i=>({type:'image',mimeType:i.mimeType,data:i.data})),behavior:c.behavior||'followUp',...(files.length?{files:files.map(f=>({name:f.name,data:f.data}))}:{})};
 }
 
-export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=true,token:providedToken,orcaReader=readOrca,archiveList,archiveLaunch,newLaunch,closeTerminal,speechTranscribe=transcribe,usageReader=readUsage,basePath=''}={}){
+export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=true,token:providedToken,orcaReader=readOrca,archiveList,archiveLaunch,newLaunch,closeTerminal,speechTranscribe=transcribe,usageReader=readUsage,orchestrationTmpRoot,basePath=''}={}){
   if(!dataDir)throw Error('dataDir required');
   if(typeof basePath!=='string'||(basePath&&!/^\/[a-zA-Z0-9_/-]+$/.test(basePath)))throw Error('Invalid base path');
   basePath=basePath.replace(/\/+$/,'');
@@ -162,6 +163,13 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
   const archive=new Archive({dataDir,inventory:syncInventory,owners:()=>[...sessions.values()].filter(s=>s.socket&&!s.socket.destroyed).map(s=>s.meta),list:archiveList,launch:archiveLaunch});
   const lifecycle=new Lifecycle({dataDir,inventory:syncInventory,owners:()=>[...sessions.values()].filter(s=>s.socket&&!s.socket.destroyed).map(s=>({...s.meta,status:s.status})),launch:newLaunch,close:closeTerminal});
   const usage=cachedUsage(orca?usageReader:async()=>{throw Error('Orca disabled');});
+  const orchestration=new OrchestrationStore({dataDir,tmpRoot:orchestrationTmpRoot});
+  function inspectAgent(s,agentId,before){return new Promise((resolve,reject)=>{
+    if(!s.socket||s.socket.destroyed||pending.size>=100){reject(Error('Inspection unavailable'));return;}
+    const requestId=crypto.randomUUID(),timer=setTimeout(()=>complete(requestId,{ok:false,error:'Agent inspection timed out'}),7000);timer.unref();
+    pending.set(requestId,{clients:new Set(),sessionId:s.meta.id,timer,socket:s.socket,command:'agent_transcript',resolve,reject});
+    s.socket.write(JSON.stringify({type:'command',requestId,sessionId:s.meta.id,command:'agent_transcript',agentId,before})+'\n');
+  });}
   const server=http.createServer(async(req,res)=>{
     try{
       const route=routeUrl(req.url);if(route===null)return json(res,404,{error:'Not found'});
@@ -183,6 +191,14 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
         if(!Number.isInteger(offset)||offset<0||offset>100000||query.length>200)throw Error('Invalid archive query');
         return json(res,200,await archive.page(offset,query));
       }
+      const inspection=u.pathname.match(/^\/api\/sessions\/([^/]+)\/orchestration(?:\/agents\/([^/]+))?$/);
+      if(inspection){const s=sessions.get(decodeURIComponent(inspection[1]));if(!s)return json(res,404,{error:'Session not found'});
+        if(!inspection[2])return json(res,200,s.orchestration||await orchestration.catalog(s.meta));
+        const agentId=decodeURIComponent(inspection[2]),before=Number(u.searchParams.get('before')||0);if(!safeId(agentId)||!Number.isSafeInteger(before)||before<0)throw Error('Invalid inspection');
+        if(s.orchestration?.liveAvailable&&s.socket){try{return json(res,200,await inspectAgent(s,agentId,before));}catch{}}
+        try{return json(res,200,await orchestration.savedDetail(s.meta,agentId));}catch{}
+        try{return json(res,200,cleanAgentDetail(await orchestration.fallbackDetail(s.meta,agentId,before)));}catch{return json(res,404,{error:'Agent transcript unavailable or expired'});}
+      }
       const m=u.pathname.match(/^\/api\/sessions\/([^/]+)(?:\/media\/([a-f0-9]{64}))?$/);
       if(m){const id=decodeURIComponent(m[1]),s=sessions.get(id);if(!s)return json(res,404,{error:'Session not found'});
         if(m[2]){const b=media.get(id+'/'+m[2]);if(!b)return json(res,404,{error:'Image expired or unavailable'});res.writeHead(200,{'Content-Type':b.mimeType,'Content-Length':b.data.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(b.data);}
@@ -198,6 +214,7 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
   function complete(requestId,ack){
     const p=pending.get(requestId);if(!p)return;
     clearTimeout(p.timer);pending.delete(requestId);
+    if(p.command==='agent_transcript'){if(ack.ok)p.resolve(ack.data);else p.reject(Error(ack.error||'Inspection unavailable'));return;}
     const result={type:'ack',requestId,sessionId:p.sessionId,...ack};if(!['history','document'].includes(p.command))receipts.set(requestId,{result,hash:p.hash});
     if(receipts.size>1000)receipts.delete(receipts.keys().next().value);
     for(const ws of p.clients)send(ws,result);
@@ -262,9 +279,14 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
           const nextConfig=config(packet.meta),configChanged=JSON.stringify(nextConfig)!==JSON.stringify(s.configuration);
           s.configuration=nextConfig;
           broadcastSnapshot(s,oldEpoch===s.page.epoch?previous:null,configChanged);if(old!==s.status||configChanged||oldTitle!==s.meta.title)broadcastCatalog();
+        }else if(packet.type==='orchestration'){
+          const s=sessions.get(id);if(!s||s.socket!==socket||packet.id!==id)throw Error('Wrong owner');const value=cleanOrchestration(packet.data);s.orchestration=value;orchestration.record(s.meta,value).then(merged=>{if(s.orchestration===value)s.orchestration=merged;}).catch(()=>{});
+        }else if(packet.type==='agent_cache'){
+          const s=sessions.get(id);if(!s||s.socket!==socket||packet.id!==id)throw Error('Wrong owner');const detail=cleanAgentDetail(packet.data);if(s.orchestration?.agents.some(a=>a.id===detail.agent.id))orchestration.saveDetail(s.meta,detail).catch(()=>{});
         }else if(packet.type==='ack'){
           const p=pending.get(packet.requestId);if(p?.socket===socket&&p.sessionId===id){
             let data;
+            if(packet.ok&&p.command==='agent_transcript'){data=cleanAgentDetail(packet.data);const s=sessions.get(id);if(s)orchestration.saveDetail(s.meta,data).catch(()=>{});}
             if(packet.ok&&p.command==='mcp'&&Array.isArray(packet.data?.servers))data={type:'mcp',observedAt:Number(packet.data.observedAt)||0,servers:packet.data.servers.slice(0,200).filter(x=>typeof x?.name==='string'&&['connected','not-connected','needs-auth','failed','cached','disabled','blocked'].includes(x.status)).map(x=>({name:x.name.slice(0,200),status:x.status,toolCount:Math.max(0,Number(x.toolCount)||0)}))};
             if(packet.ok&&p.command==='history'&&Array.isArray(packet.data?.messages))data={type:'history',...normalize(id,packet.data.messages,sessions.get(id)?.page.activeTurnId||''),...pageMeta(packet.data)};
             if(data?.type==='history')delete data.activeTurnId;
@@ -274,7 +296,7 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
         }else throw Error('Unknown bridge frame');
       }catch{socket.destroy();return;}}
     });
-    socket.on('close',()=>{bridges.delete(socket);if(id){const s=sessions.get(id);if(s?.socket===socket){s.socket=null;broadcastSnapshot(s);broadcastCatalog();}}
+    socket.on('close',()=>{bridges.delete(socket);if(id){const s=sessions.get(id);if(s?.socket===socket){s.socket=null;if(s.orchestration){s.orchestration.liveAvailable=false;for(const a of [...s.orchestration.agents,...s.orchestration.workflows])if(['running','queued','starting','waiting'].includes(a.status))a.status='unknown';}broadcastSnapshot(s);broadcastCatalog();}}
       for(const [rid,p]of pending)if(p.socket===socket)complete(rid,{ok:false,error:'Pi disconnected: acceptance unknown; inspect chat before retry'});
     });
   });

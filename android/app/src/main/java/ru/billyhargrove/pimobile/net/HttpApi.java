@@ -69,6 +69,13 @@ public final class HttpApi {
 
     public JSONObject fetchUsage(String baseUrl,String token)throws IOException{return getJson(EndpointPolicy.apiUrl(baseUrl,"/api/usage"),token);}
 
+    public JSONObject fetchOrchestration(String baseUrl,String token,String sessionId)throws IOException {
+        return getJson(EndpointPolicy.apiUrl(baseUrl,"/api/sessions/"+encodePathSegment(sessionId)+"/orchestration"),token);
+    }
+    public JSONObject fetchAgent(String baseUrl,String token,String sessionId,String agentId,long before)throws IOException {
+        return getJson(EndpointPolicy.apiUrl(baseUrl,"/api/sessions/"+encodePathSegment(sessionId)+"/orchestration/agents/"+encodePathSegment(agentId)+(before>0?"?before="+before:"")),token);
+    }
+
     public JSONObject fetchArchive(String baseUrl, String token, int offset, String query) throws IOException {
         return getJson(EndpointPolicy.apiUrl(baseUrl, "/api/archive?offset=" + offset + "&q=" + encodePathSegment(query)), token);
     }

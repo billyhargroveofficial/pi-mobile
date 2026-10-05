@@ -30,6 +30,7 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".OrchestrationActivity" android:exported="false" android:label="Orchestration" />
         <activity
             android:name=".ChatActivity"
             android:exported="false"

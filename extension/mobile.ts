@@ -5,6 +5,7 @@ import {getSupportedThinkingLevels} from '@earendil-works/pi-ai/compat';
 import {historyPage,messageId,PAGE_SIZE,readMarkdown} from './session-data.ts';
 import {skillCommands,skillPrompt,mcpSnapshot} from './mobile-controls.ts';
 import {supportedTiers,observedTier,restoredTier,tierPayload,TIER_ENTRY,type MobileTier} from './mobile-tier.ts';
+import {MobileOrchestration} from './mobile-orchestration.ts';
 import type {ExtensionAPI,ExtensionContext} from '@earendil-works/pi-coding-agent';
 
 // Session-scoped resources only. No second Pi process, no access to auth secrets.
@@ -19,6 +20,8 @@ export default function mobile(pi:ExtensionAPI){
   const turnStats=new Map<string,any>();
   let mcp:any=null;
   let serviceTier:MobileTier|null=null,execution:any=null;
+  let observer=new MobileOrchestration(),observationTimer:ReturnType<typeof setInterval>|undefined;
+  function observe(){if(!enabled||!registered||!ctx)return;const data=observer.snapshot(ctx.sessionManager.getSessionId());if(data){send({type:'orchestration',id:ctx.sessionManager.getSessionId(),data});for(const detail of observer.drainCaches())send({type:'agent_cache',id:ctx.sessionManager.getSessionId(),data:detail});}}
   pi.events.on('pi-mcp-adapter/status/v1',(value:unknown)=>{const clean=mcpSnapshot(value);if(clean)mcp={...clean,observedAt:Date.now()};});
   const socketPath=process.env.PI_MOBILE_SOCKET||path.join(process.env.PI_MOBILE_DIR||path.join(homedir(),'.pi/agent/pi-mobile'),'bridge.sock');
   function metadata(){
@@ -47,7 +50,7 @@ export default function mobile(pi:ExtensionAPI){
     send({type:'snapshot',id:ctx.sessionManager.getSessionId(),meta:metadata(),messages:boundedMessages(),status:running?'running':'idle',truncated,history,epoch,turns:[...turnStats.values()],activeTurnId:running?turnId:''});
   }
   function schedule(){dirty=true;if(!timer){timer=setTimeout(flush,100);timer.unref();}}
-  function disconnect(){generation++;clearTimeout(timer);timer=undefined;clearTimeout(retry);retry=undefined;registered=false;socket?.destroy();socket=undefined;buffer='';}
+  function disconnect(){generation++;clearInterval(observationTimer);observationTimer=undefined;clearTimeout(timer);timer=undefined;clearTimeout(retry);retry=undefined;registered=false;socket?.destroy();socket=undefined;buffer='';}
   async function command(c:any,gen:number){
     if(gen!==generation||!ctx)return;
     try{
@@ -55,7 +58,11 @@ export default function mobile(pi:ExtensionAPI){
       if(typeof c.requestId!=='string')throw Error('Invalid request');
       if(seen.has(c.requestId)){send(seen.get(c.requestId));return;}
       let data:any;
-      if(c.command==='history')data={type:'history',...historyPage(ctx.sessionManager.getBranch(),c.before,c.limit),epoch};
+      if(c.command==='agent_transcript'){
+        if(typeof c.agentId!=='string'||!/^[a-zA-Z0-9._:-]{1,160}$/.test(c.agentId)||!Number.isSafeInteger(c.before)||c.before<0)throw Error('Invalid agent inspection');
+        data=observer.detail(ctx.sessionManager.getSessionId(),c.agentId,c.before);
+      }
+      else if(c.command==='history')data={type:'history',...historyPage(ctx.sessionManager.getBranch(),c.before,c.limit),epoch};
       else if(c.command==='document')data=await readMarkdown(ctx.cwd,c.path);
       else if(c.command==='mcp'){
         if(!mcp)throw Error('Текущее расширение MCP ещё не сообщило состояние подключений');
@@ -85,12 +92,12 @@ export default function mobile(pi:ExtensionAPI){
         const content=images.length?[{type:'text' as const,text:prompt.text||'Посмотри изображение'},...images]:prompt.text;
         pi.sendUserMessage(content,{deliverAs:c.behavior==='steer'?'steer':'followUp',expandPromptTemplates:prompt.expand});
       }else throw Error('Unsupported command');
-      const ack={type:'ack',requestId:c.requestId,ok:true,...(data?{data}:{})};seen.set(c.requestId,ack);if(seen.size>1000)seen.delete(seen.keys().next().value!);send(ack);
-    }catch(e){const ack={type:'ack',requestId:c?.requestId,ok:false,error:e instanceof Error?e.message:'Command failed'};if(c?.requestId)seen.set(c.requestId,ack);send(ack);}
+      const ack={type:'ack',requestId:c.requestId,ok:true,...(data?{data}:{})};if(c.command!=='agent_transcript'){seen.set(c.requestId,ack);if(seen.size>1000)seen.delete(seen.keys().next().value!);}send(ack);
+    }catch(e){const ack={type:'ack',requestId:c?.requestId,ok:false,error:e instanceof Error?e.message:'Command failed'};if(c?.requestId&&c.command!=='agent_transcript')seen.set(c.requestId,ack);send(ack);}
   }
   function connect(){
     if(!enabled||!ctx||socket)return;const gen=generation;const s=net.connect(socketPath);socket=s;buffer='';s.setEncoding('utf8');
-    s.on('connect',()=>{if(gen!==generation)return;registered=true;send({type:'register',meta:metadata(),messages:boundedMessages(),status:running?'running':'idle',truncated,history,epoch,turns:[...turnStats.values()],activeTurnId:running?turnId:''});ctx?.ui.setStatus('pi-mobile','Mobile connected');});
+    s.on('connect',()=>{if(gen!==generation)return;registered=true;send({type:'register',meta:metadata(),messages:boundedMessages(),status:running?'running':'idle',truncated,history,epoch,turns:[...turnStats.values()],activeTurnId:running?turnId:''});ctx?.ui.setStatus('pi-mobile','Mobile connected');observe();if(!observationTimer){observationTimer=setInterval(observe,2000);observationTimer.unref();}});
     s.on('error',()=>{});
     s.on('drain',()=>{if(dirty)schedule();});
     s.on('close',()=>{if(gen!==generation)return;registered=false;socket=undefined;ctx?.ui.setStatus('pi-mobile','Mobile offline');if(enabled){retry=setTimeout(connect,3000);retry.unref();}});
@@ -135,7 +142,7 @@ export default function mobile(pi:ExtensionAPI){
     if(!response||!['response.created','response.completed','response.in_progress'].includes(data.type))return;
     const tier=observedTier(response.service_tier);if(tier){execution={...execution,model:String(e.model||execution.model),provider:String(e.provider||execution.provider),serviceTier:tier,tierConfirmed:true};schedule();}
   });
-  pi.on('session_start',(_e,c)=>{disconnect();ctx=c;enabled=c.mode==='tui';if(!enabled)return;running=!c.isIdle();load();connect();});
+  pi.on('session_start',(_e,c)=>{disconnect();ctx=c;enabled=c.mode==='tui';if(!enabled)return;running=!c.isIdle();observer=new MobileOrchestration();load();connect();});
   pi.on('session_shutdown',()=>{enabled=false;disconnect();ctx=undefined;transcript=[];partial=null;tools.clear();seen.clear();turnStats.clear();current=null;serviceTier=null;execution=null;});
   pi.on('message_start',(e,c)=>{ctx=c;if(!enabled)return;if(e.message.role==='assistant'){if(current){current.id=turnId;turnStats.set(turnId,current);}partial=tagged(e.message);streamStarted=0;}schedule();});
   pi.on('message_update',(e,c)=>{ctx=c;if(!enabled)return;partial=tagged(e.message);if(!streamStarted)streamStarted=Date.now();schedule();});

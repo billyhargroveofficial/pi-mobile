@@ -122,6 +122,7 @@ public final class ChatActivity extends AppCompatActivity
     private TextView attachmentsTitle;
     private TextView chatTitleText;
     private TextView chatStatusText;
+    private ru.billyhargrove.pimobile.ui.OrchestrationEntry orchestration;
     private TextView chatEmptyText;
     private TextView truncatedBanner;
     private TextView readOnlyBanner;
@@ -191,6 +192,7 @@ public final class ChatActivity extends AppCompatActivity
         chatConnectionDot = findViewById(R.id.chatConnectionDot);
 
         chatTitleText.setText(sessionTitle.isEmpty() ? getString(R.string.chat_title) : sessionTitle);
+        orchestration=new ru.billyhargrove.pimobile.ui.OrchestrationEntry(this,findViewById(R.id.orchestrationButton),sessionId);
 
         LinearLayoutManager layoutManager = new LinearLayoutManager(this);
         messageList.setLayoutManager(layoutManager);
@@ -236,11 +238,13 @@ public final class ChatActivity extends AppCompatActivity
         client.setListener(this);
         configuration = client.configuration(sessionId);
         client.subscribe(sessionId);
+        orchestration.start();
     }
 
     @Override
     protected void onStop() {
         super.onStop();
+        if(orchestration!=null)orchestration.stop();
         if(dictation!=null){dictation.cancel();dictation=null;}
         LinearLayoutManager layout=(LinearLayoutManager)messageList.getLayoutManager();int first=layout.findFirstVisibleItemPosition();View top=layout.findViewByPosition(first);if(first>=0&&top!=null)client.saveViewport(sessionId,adapter.keyAt(first),top.getTop()-messageList.getPaddingTop(),followTail);
         client.clearListener(this);
