@@ -65,6 +65,10 @@
 - `android/` — Java/native Android views, Material 3 Expressive, RecyclerView, OkHttp, Android Keystore.
 - [Протокол](docs/protocol.md) · [Проверки релиза](docs/verification.md) · [Установка и обновление](docs/setup.md).
 
+## Долговременная цель миграции
+
+По просьбе Billy поставлен отдельный [goal Kotlin/Compose и agent-native архитектуры](loop-develop/current-todo/001-todo.md). Миграция ещё не начата: сначала визуальный и функциональный baseline, затем небольшие проверяемые слайсы с сохранением удачного дизайна. [Правила для агентов](AGENTS.md) · [жизненный цикл goal](loop-develop/README.md).
+
 ## Разработка
 
 Требуются Node ≥22.18, установленный Pi, JDK17 и Android SDK. Пути SDK/JDK ниже — пример для Mac.
