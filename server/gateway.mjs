@@ -5,6 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {WebSocketServer,WebSocket} from 'ws';
 import {readOrca} from './orca.mjs';
+import {Archive} from './archive.mjs';
 
 export const MAX_IMAGE=10*1024*1024;
 const MAX_FRAME=32*1024*1024;
@@ -20,7 +21,7 @@ export function decodeImage(image){
   return b;
 }
 export function validateCommand(c){
-  if(!c||!safeId(c.requestId)||!safeId(c.sessionId)||!['prompt','abort','configure','history','document'].includes(c.command))throw Error('Invalid command');
+  if(!c||!safeId(c.requestId)||!safeId(c.sessionId)||!['prompt','abort','configure','history','document','resume'].includes(c.command))throw Error('Invalid command');
   if(c.command==='history'){
     if(typeof c.before!=='string'||!c.before||c.before.length>500||!Number.isInteger(c.limit??40)||(c.limit??40)<1||(c.limit??40)>40)throw Error('Invalid history cursor');
     return {type:'command',command:'history',sessionId:c.sessionId,requestId:c.requestId,before:c.before,limit:c.limit??40};
@@ -29,7 +30,7 @@ export function validateCommand(c){
     if(typeof c.path!=='string'||c.path.length>2000||! /\.(md|markdown)$/i.test(c.path)||/[\x00-\x1f]/.test(c.path))throw Error('Invalid Markdown path');
     return {type:'command',command:'document',sessionId:c.sessionId,requestId:c.requestId,path:c.path};
   }
-  if(c.command==='abort')return {type:'command',sessionId:c.sessionId,requestId:c.requestId,command:'abort'};
+  if(c.command==='abort'||c.command==='resume')return {type:'command',sessionId:c.sessionId,requestId:c.requestId,command:c.command};
   if(c.command==='configure'){
     const text=x=>typeof x==='string'&&x.length>0&&x.length<=200&&!/[\x00-\x1f]/.test(x);
     if((c.provider!==undefined||c.modelId!==undefined)&&(!text(c.provider)||!text(c.modelId)))throw Error('Invalid model');
@@ -46,7 +47,7 @@ export function validateCommand(c){
   return {type:'command',sessionId:c.sessionId,requestId:c.requestId,command:'prompt',text:c.text,images:images.map(i=>({type:'image',mimeType:i.mimeType,data:i.data})),behavior:c.behavior||'followUp'};
 }
 
-export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=true,token:providedToken}={}){
+export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=true,token:providedToken,orcaReader=readOrca,archiveList,archiveLaunch}={}){
   if(!dataDir)throw Error('dataDir required');
   if(!['127.0.0.1','::1'].includes(host))throw Error('Bind gateway to loopback; use an authenticated HTTPS reverse proxy');
   fs.mkdirSync(dataDir,{recursive:true,mode:0o700}); fs.chmodSync(dataDir,0o700);
@@ -60,13 +61,15 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
   const send=(ws,obj)=>{if(ws.readyState===WebSocket.OPEN){if(ws.bufferedAmount>8*1024*1024){ws.close(1013,'Slow client');return;}ws.send(JSON.stringify(obj));}};
   function catalog(){
     const workspaces=new Map(inventory.workspaces.map(w=>[w.id,w]));
-    const list=[...sessions.values()].map(s=>{
+    const list=[...sessions.values()].filter(s=>!orca||(s.socket&&!s.socket.destroyed&&inventory.terminals.some(t=>t.id===s.meta.terminalId))).map(s=>{
       const terminal=inventory.terminals.find(t=>t.id===s.meta.terminalId);
       const workspaceId=terminal?.workspaceId||s.meta.workspaceId||'folder:'+s.meta.cwd;
       if(!workspaces.has(workspaceId))workspaces.set(workspaceId,{id:workspaceId,name:path.basename(s.meta.cwd)||s.meta.cwd,path:s.meta.cwd});
       return {...s.meta,workspaceId,title:s.meta.title||terminal?.title||path.basename(s.meta.cwd),connected:!!s.socket,status:s.socket?s.status:'offline'};
     });
-    return {type:'catalog',workspaces:[...workspaces.values()],sessions:list,terminals:inventory.terminals.filter(t=>!list.some(s=>s.connected&&s.terminalId===t.id)),truncated:inventory.truncated,omittedHostIds:inventory.omittedHostIds,inventoryError};
+    const terminals=inventory.terminals.filter(t=>!list.some(s=>s.terminalId===t.id));
+    const used=new Set([...list.map(s=>s.workspaceId),...terminals.map(t=>t.workspaceId)]);
+    return {type:'catalog',workspaces:[...workspaces.values()].filter(w=>used.has(w.id)),sessions:list,terminals,truncated:inventory.truncated,omittedHostIds:inventory.omittedHostIds,inventoryError};
   }
   const wss=new WebSocketServer({noServer:true,maxPayload:16*1024*1024,perMessageDeflate:false});
   const broadcastCatalog=()=>{const c=catalog();for(const ws of wss.clients)send(ws,c);};
@@ -124,7 +127,14 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
     return {messages:result.slice(-400),truncated};
   }
   const json=(res,status,body)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(body));};
-  const server=http.createServer((req,res)=>{
+  let inventoryRead;
+  async function syncInventory(){
+    if(!orca)throw Error('Orca integration is disabled');
+    if(!inventoryRead)inventoryRead=orcaReader().then(value=>{inventory=value;inventoryError=null;broadcastCatalog();return value;}).finally(()=>inventoryRead=null);
+    return inventoryRead;
+  }
+  const archive=new Archive({dataDir,inventory:syncInventory,owners:()=>[...sessions.values()].filter(s=>s.socket&&!s.socket.destroyed).map(s=>s.meta),list:archiveList,launch:archiveLaunch});
+  const server=http.createServer(async(req,res)=>{
     try{
       const u=new URL(req.url,'http://localhost');
       if(req.method!=='GET')return json(res,405,{error:'Method not allowed'});
@@ -132,13 +142,18 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
       if(!authorized(req))return json(res,401,{error:'Unauthorized'});
       if(req.headers.origin)return json(res,403,{error:'Browser origins are not allowed'});
       if(u.pathname==='/api/catalog')return json(res,200,catalog());
+      if(u.pathname==='/api/archive'){
+        const offset=Number(u.searchParams.get('offset')||0),query=u.searchParams.get('q')||'';
+        if(!Number.isInteger(offset)||offset<0||offset>100000||query.length>200)throw Error('Invalid archive query');
+        return json(res,200,await archive.page(offset,query));
+      }
       const m=u.pathname.match(/^\/api\/sessions\/([^/]+)(?:\/media\/([a-f0-9]{64}))?$/);
       if(m){const id=decodeURIComponent(m[1]),s=sessions.get(id);if(!s)return json(res,404,{error:'Session not found'});
         if(m[2]){const b=media.get(id+'/'+m[2]);if(!b)return json(res,404,{error:'Image expired or unavailable'});res.writeHead(200,{'Content-Type':b.mimeType,'Content-Length':b.data.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(b.data);}
         return json(res,200,snapshot(s));
       }
       json(res,404,{error:'Not found'});
-    }catch{json(res,400,{error:'Bad request'});}
+    }catch{json(res,400,{error:'Запрос недоступен. Проверь Orca на Mac и обнови список.'});}
   });
   server.on('upgrade',(req,socket,head)=>{
     if(req.url!=='/ws'||!authorized(req)||req.headers.origin||wss.clients.size>=8){socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');return;}
@@ -162,6 +177,12 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
         const receipt=receipts.get(c.requestId);if(receipt){if(receipt.hash!==fingerprint)throw Error('Request ID reused');send(ws,receipt.result);return;}
         const inflight=pending.get(c.requestId);if(inflight){if(inflight.hash!==fingerprint)throw Error('Request ID reused');inflight.clients.add(ws);return;}
         recent=recent.filter(t=>Date.now()-t<60000);if(recent.length>=30)throw Error('Too many commands');recent.push(Date.now());
+        if(c.command==='resume'){
+          if(pending.size>=100)throw Error('Too many pending commands');
+          const timer=setTimeout(()=>complete(c.requestId,{ok:false,error:'Результат запуска неизвестен. Проверь Orca на Mac; не запускай копию'}),30000);timer.unref();
+          pending.set(c.requestId,{clients:new Set([ws]),sessionId:c.sessionId,timer,hash:fingerprint,command:'resume'});
+          archive.resume(c.sessionId).then(data=>complete(c.requestId,{ok:true,data}),e=>complete(c.requestId,{ok:false,error:String(e.message).slice(0,500)}));return;
+        }
         const s=sessions.get(c.sessionId);if(!s?.socket||s.socket.destroyed)throw Error('Pi offline: reload mobile extension in terminal');
         if(pending.size>=100)throw Error('Too many pending commands');
         if(s.socket.writableLength>MAX_FRAME)throw Error('Pi connection is congested');
@@ -186,7 +207,7 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
         if(packet.type==='register'){
           const m=packet.meta;if(!m||!safeId(m.id)||typeof m.cwd!=='string'||m.cwd.length>4000||!Array.isArray(packet.messages))throw Error('Bad registration');
           const existing=sessions.get(m.id);if(existing?.socket&&existing.socket!==socket)throw Error('Duplicate live session owner');
-          if(!existing&&sessions.size>=100)throw Error('Too many sessions');
+          if(!existing&&sessions.size>=100){const stale=[...sessions].find(([,s])=>!s.socket);if(stale)sessions.delete(stale[0]);else throw Error('Too many sessions');}
           if(id&&id!==m.id){const prior=sessions.get(id);if(prior?.socket===socket){prior.socket=null;broadcastSnapshot(prior);}for(const [rid,p]of pending)if(p.socket===socket)complete(rid,{ok:false,error:'Session changed; acceptance unknown'});}
           id=m.id;
           const meta={id,title:String(m.title||'').slice(0,200),cwd:m.cwd,terminalId:String(m.terminalId||''),workspaceId:String(m.workspaceId||''),model:String(m.model||'')};
@@ -217,9 +238,8 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
   });
   await new Promise((resolve,reject)=>{bridge.once('error',reject);bridge.listen(socketPath,resolve);});fs.chmodSync(socketPath,0o600);
   try{await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,host,resolve);});}catch(e){bridge.close();throw e;}
-  let refreshing=false;
-  async function refresh(){if(!orca||refreshing||closed)return;refreshing=true;try{inventory=await readOrca();inventoryError=null;}catch{inventoryError='Orca unavailable; showing last known inventory';}finally{refreshing=false;if(!closed)broadcastCatalog();}}
-  await refresh();const poll=setInterval(refresh,10000);poll.unref();
+  async function refresh(){if(!orca||closed)return;try{await syncInventory();}catch{inventoryError='Orca unavailable; showing last known inventory';if(!closed)broadcastCatalog();}}
+  await refresh();const poll=setInterval(refresh,3000);poll.unref();
   const heartbeat=setInterval(()=>{for(const ws of wss.clients){if(!ws.alive){ws.terminate();continue;}ws.alive=false;ws.ping();}},30000);heartbeat.unref();
   return {port:server.address().port,socketPath,token,catalog,async close(){closed=true;clearInterval(poll);clearInterval(heartbeat);for(const p of pending.values())clearTimeout(p.timer);for(const ws of wss.clients)ws.terminate();for(const s of bridges)s.destroy();await Promise.all([new Promise(r=>server.close(r)),new Promise(r=>bridge.close(r))]);wss.close();}};
 }

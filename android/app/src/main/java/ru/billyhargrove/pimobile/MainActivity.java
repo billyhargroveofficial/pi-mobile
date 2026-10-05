@@ -65,6 +65,9 @@ public final class MainActivity extends AppCompatActivity
 
     private boolean healthCheckRunning;
     private boolean catalogRunning;
+    private ru.billyhargrove.pimobile.ui.ArchiveSheet archiveSheet;
+    private String resumeRequest, resumeSession, resumeTitle;
+    private final android.os.Handler resumeHandler = new android.os.Handler(android.os.Looper.getMainLooper());
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -123,6 +126,14 @@ public final class MainActivity extends AppCompatActivity
         });
         healthCheckButton.setOnClickListener(v -> onHealthCheckClicked());
         refreshButton.setOnClickListener(v -> onRefreshClicked());
+        findViewById(R.id.historyButton).setOnClickListener(v -> {
+            if (client.state() != ConnectionState.CONNECTED) { showMessage("Сначала подключись к Mac", true); return; }
+            archiveSheet = new ru.billyhargrove.pimobile.ui.ArchiveSheet(this, app, (id, title) ->
+                new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                    .setTitle("Возобновить диалог?").setMessage(title + "\n\nОн откроется в Orca на Mac с прежней историей. Сообщение агенту не отправляется.")
+                    .setNegativeButton("Отмена", null).setPositiveButton("Открыть", (d, which) -> resumeSaved(id, title)).show());
+            archiveSheet.show();
+        });
 
         // Edge-to-edge (targetSdk 35): the top bar eats the status bar inset, the
         // bottom status strip eats the navigation inset, and the IME lifts the form.
@@ -153,6 +164,8 @@ public final class MainActivity extends AppCompatActivity
 
     @Override protected void onDestroy() {
         connectionSheet.dismiss();
+        if (archiveSheet != null) archiveSheet.dismiss();
+        resumeHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
 
@@ -270,6 +283,7 @@ public final class MainActivity extends AppCompatActivity
     @Override
     public void onCatalog(Catalog catalog) {
         renderCatalog(catalog);
+        openResumedIfReady(catalog);
     }
 
     @Override
@@ -279,13 +293,46 @@ public final class MainActivity extends AppCompatActivity
 
     @Override
     public void onAck(ru.billyhargrove.pimobile.core.Ack ack) {
-        // Commands are only sent from the chat screen.
+        if (ack.requestId().equals(resumeRequest) && !ack.ok()) { clearResume(); showMessage(ack.error(), true); }
     }
 
     @Override
     public void onProtocolError(String message) {
         showMessage(getString(R.string.protocol_error_format, message), true);
     }
+
+    @Override public void onData(String requestId, String sessionId, org.json.JSONObject data) {
+        if (requestId.equals(resumeRequest) && "resume".equals(data.optString("type"))) {
+            showMessage("Вкладка открыта в Orca. Ждём подключение Pi…", false);
+            openResumedIfReady(client.catalog());
+        }
+    }
+
+    @Override public void onCommandUncertain(String requestId, String sessionId, String reason) {
+        if (requestId.equals(resumeRequest)) { clearResume(); showMessage("Результат открытия неизвестен. Проверь вкладки Orca на Mac; автоматического повтора нет.", true); }
+    }
+
+    private void resumeSaved(String id, String title) {
+        if (resumeSession != null) return;
+        if (archiveSheet != null) archiveSheet.dismiss();
+        resumeSession = id; resumeTitle = title;
+        resumeRequest = client.readCommand(id, "resume", new org.json.JSONObject());
+        if (resumeRequest == null) { clearResume(); showMessage("Нет подключения к Mac", true); return; }
+        findViewById(R.id.historyButton).setEnabled(false);
+        ((TextView)findViewById(R.id.catalogSummary)).setText("Открываем диалог в Orca…");
+        resumeHandler.postDelayed(() -> { if (resumeSession != null) { clearResume(); showMessage("Pi ещё не подключился. Проверь открытую вкладку на Mac — возможно, нужен ответ на диалог запуска.", true); } }, 45000);
+    }
+
+    private void openResumedIfReady(Catalog catalog) {
+        if (resumeSession == null || !getLifecycle().getCurrentState().isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) return;
+        ru.billyhargrove.pimobile.core.Session session = catalog.findSession(resumeSession);
+        if (session == null || !session.connected()) return;
+        String id = resumeSession, title = resumeTitle;
+        clearResume();
+        startActivity(ChatActivity.intent(this, id, title, false));
+    }
+
+    private void clearResume() { resumeRequest = null; resumeSession = null; resumeTitle = null; resumeHandler.removeCallbacksAndMessages(null); findViewById(R.id.historyButton).setEnabled(true); }
 
     // ---------------------------------------------------------- CatalogAdapter.Listener
 
@@ -307,7 +354,7 @@ public final class MainActivity extends AppCompatActivity
         adapter.submit(rows);
         TextView summary = findViewById(R.id.catalogSummary);
         long running = catalog.sessions().stream().filter(s -> s.status() == ru.billyhargrove.pimobile.core.SessionStatus.RUNNING && s.connected()).count();
-        summary.setText("Пространства: " + catalog.workspaces().size() + "  ·  Диалоги: " + catalog.sessions().size() + (running > 0 ? "  ·  В работе: " + running : ""));
+        summary.setText(resumeSession != null ? "Открываем диалог в Orca…" : "Пространства: " + catalog.workspaces().size() + "  ·  Вкладки: " + (catalog.sessions().size() + catalog.terminals().size()) + (running > 0 ? "  ·  В работе: " + running : ""));
         if (firstCatalog && !rows.isEmpty()) {
             firstCatalog = false;
             ru.billyhargrove.pimobile.ui.ExpressiveMotion.enter(findViewById(R.id.catalogList), 80);

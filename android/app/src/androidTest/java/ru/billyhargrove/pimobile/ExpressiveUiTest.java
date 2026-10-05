@@ -26,6 +26,22 @@ public class ExpressiveUiTest {
     private Intent chat() { return ChatActivity.intent(context, "ui-test-no-agent", "Проверка дизайна", false); }
     private void idle() { InstrumentationRegistry.getInstrumentation().waitForIdleSync(); device.waitForIdle(); }
 
+    @Test public void catalogHasSeparateHistoryAction() {
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            idle();
+            scenario.onActivity(a -> {
+                View button = a.findViewById(R.id.historyButton);
+                assertTrue(button instanceof MaterialButton);
+                Rect root = new Rect(), bounds = new Rect();
+                a.findViewById(R.id.mainRoot).getGlobalVisibleRect(root);
+                assertTrue(button.getGlobalVisibleRect(bounds));
+                assertTrue(root.contains(bounds));
+                assertTrue(button.getHeight() >= 48 * a.getResources().getDisplayMetrics().density - 1);
+                assertEquals("История", ((MaterialButton)button).getText().toString());
+            });
+        }
+    }
+
     @Test public void usesExpressiveMaterialComponents() {
         try (ActivityScenario<ChatActivity> scenario = ActivityScenario.launch(chat())) {
             idle();

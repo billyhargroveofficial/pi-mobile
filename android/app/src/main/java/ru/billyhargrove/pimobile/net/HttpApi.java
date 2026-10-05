@@ -61,6 +61,10 @@ public final class HttpApi {
         return catalog;
     }
 
+    public JSONObject fetchArchive(String baseUrl, String token, int offset, String query) throws IOException {
+        return getJson(EndpointPolicy.apiUrl(baseUrl, "/api/archive?offset=" + offset + "&q=" + encodePathSegment(query)), token);
+    }
+
     public Snapshot fetchSnapshot(String baseUrl, String token, String sessionId) throws IOException {
         String path = "/api/sessions/" + encodePathSegment(sessionId);
         JSONObject json = getJson(EndpointPolicy.apiUrl(baseUrl, path), token);

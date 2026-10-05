@@ -91,7 +91,7 @@ public final class SessionGrouping {
             if (terminals == null) {
                 terminals = Collections.emptyList();
             }
-            rows.add(CatalogRow.header(key, labels.get(key), subtitles.get(key), sessions.size()));
+            rows.add(CatalogRow.header(key, labels.get(key), subtitles.get(key), sessions.size() + terminals.size()));
             List<Session> sorted = new ArrayList<>(sessions);
             Collections.sort(sorted, SESSION_ORDER);
             for (Session session : sorted) {
