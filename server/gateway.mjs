@@ -8,8 +8,10 @@ import {readOrca} from './orca.mjs';
 import {Archive} from './archive.mjs';
 import {Lifecycle} from './lifecycle.mjs';
 import {attachFiles,attachmentDisplay} from './attachments.mjs';
-import {MAX_IMAGE,safeId,decodeImage,validateCommand} from './command-policy.mjs';
-export {MAX_IMAGE,decodeImage,validateCommand};
+import {safeId,decodeImage,validateCommand} from './command-policy.mjs';
+import {MediaCache} from './media-cache.mjs';
+export {MAX_IMAGE} from './command-policy.mjs';
+export {decodeImage,validateCommand};
 import {audioBytes,validateAudio,MAX_AUDIO_BYTES,transcribe} from './speech.mjs';
 import {cachedUsage,readUsage} from './usage.mjs';
 import {resumeDelta} from './conversation-sync.mjs';
@@ -30,9 +32,9 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
   let token=providedToken;
   if(!token){if(!fs.existsSync(tokenFile))fs.writeFileSync(tokenFile,crypto.randomBytes(32).toString('base64url'),{mode:0o600,flag:'wx'}); token=fs.readFileSync(tokenFile,'utf8').trim(); fs.chmodSync(tokenFile,0o600);}
   if(typeof token!=='string'||token.length<32)throw Error('Token too short');
-  const expected=hash(token),sessions=new Map(),pending=new Map(),receipts=new Map(),bridges=new Set(),media=new Map();
+  const expected=hash(token),sessions=new Map(),pending=new Map(),receipts=new Map(),bridges=new Set(),media=new MediaCache();
   let speechBusy=false;
-  let mediaBytes=0, inventory={workspaces:[],terminals:[],truncated:false,omittedHostIds:[]},inventoryError=null,closed=false;
+  let inventory={workspaces:[],terminals:[],truncated:false,omittedHostIds:[]},inventoryError=null,closed=false;
   const authorized=req=>{const a=req.headers.authorization||'';return a.startsWith('Bearer ')&&crypto.timingSafeEqual(Buffer.from(hash(a.slice(7))),Buffer.from(expected));};
   const send=(ws,obj)=>{if(ws.readyState===WebSocket.OPEN){if(ws.bufferedAmount>8*1024*1024){ws.close(1013,'Slow client');return;}ws.send(JSON.stringify(obj));}};
   function catalog(){
@@ -63,11 +65,8 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
         if(b.type==='text')text.push(String(b.text||''));
         if(b.type==='image')try{
           const bytes=decodeImage(b),digest=hash(bytes),key=id+'/'+digest;
-          if(!media.has(key)){
-            // Bound total in-memory image cache. Old references yield explicit 404.
-            while(mediaBytes+bytes.length>128*1024*1024&&media.size){const k=media.keys().next().value;mediaBytes-=media.get(k).data.length;media.delete(k);}
-            media.set(key,{data:bytes,mimeType:b.mimeType});mediaBytes+=bytes.length;
-          }
+          // Prefix by owner; evicted references yield an explicit 404.
+          media.put(key,bytes,b.mimeType);
           images.push({url:`/api/sessions/${encodeURIComponent(id)}/media/${digest}`,mimeType:b.mimeType});
         }catch{text.push('[Изображение пропущено: неподдерживаемый формат или размер]');}
       }
