@@ -37,7 +37,7 @@ public class ExpressiveUiTest {
                 assertTrue(button.getGlobalVisibleRect(bounds));
                 assertTrue(root.contains(bounds));
                 assertTrue(button.getHeight() >= 48 * a.getResources().getDisplayMetrics().density - 1);
-                assertEquals("История", ((MaterialButton)button).getText().toString());
+                assertEquals("History", ((MaterialButton)button).getText().toString());
             });
         }
     }
@@ -84,7 +84,7 @@ public class ExpressiveUiTest {
                 assertNull(a.findViewById(R.id.historyProgress));
                 a.onTimelineMeta(frame);
                 String label=((android.widget.TextView)a.findViewById(R.id.workingBadge)).getText().toString();
-                assertTrue(label,label.startsWith("Working · 26м"));
+                assertTrue(label,label.startsWith("Working · 26m"));
             });
         }
     }
@@ -139,11 +139,11 @@ public class ExpressiveUiTest {
         return rows;
     }
 
-    @Test public void progressSeparatesToolsAndAllSegmentsCollapseOnFinish()throws Exception {
+    @Test public void progressStaysOpenWhileToolsCollapseOnFinish()throws Exception {
         try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(chat())) {
             final ru.billyhargrove.pimobile.ui.MessageAdapter[] adapter={null};java.util.List<ru.billyhargrove.pimobile.core.ChatMessage> source=new java.util.ArrayList<>();source.add(toolMessages(1).get(0).withPresentation("turn","work","", ""));source.add(ru.billyhargrove.pimobile.core.ChatMessage.remote("progress",ru.billyhargrove.pimobile.core.ChatMessage.Role.ASSISTANT,"Проверяю исправление",null,null).withPresentation("turn","work","",""));source.add(toolMessages(2).get(1).withPresentation("turn","work","",""));
             org.json.JSONObject active=new org.json.JSONObject().put("activeTurnId","turn");scenario.onActivity(a->{adapter[0]=new ru.billyhargrove.pimobile.ui.MessageAdapter(PiApp.get(a).mediaLoader(),null,null);((androidx.recyclerview.widget.RecyclerView)a.findViewById(R.id.messageList)).setAdapter(adapter[0]);adapter[0].metadata(active);adapter[0].submit(source);});idle();assertEquals(2,device.findObjects(By.res(context.getPackageName(),"workLogList")).size());assertTrue(device.hasObject(By.text("Проверяю исправление")));device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"progress-active.png"));
-            org.json.JSONObject done=new org.json.JSONObject().put("activeTurnId","").put("turns",new org.json.JSONArray().put(new org.json.JSONObject().put("id","turn").put("finishedAt",123)));scenario.onActivity(a->adapter[0].metadata(done));idle();assertFalse(device.hasObject(By.res(context.getPackageName(),"workLogList")));assertTrue(device.hasObject(By.desc("Развернуть сообщение о ходе работы")));device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"progress-settled.png"));device.findObjects(By.desc("Развернуть действия")).get(0).click();idle();assertEquals(1,device.findObjects(By.res(context.getPackageName(),"workLogList")).size());scenario.onActivity(a->adapter[0].metadata(done));idle();assertEquals("Repeated metadata must preserve manual expansion",1,device.findObjects(By.res(context.getPackageName(),"workLogList")).size());scenario.onActivity(a->adapter[0].close());
+            org.json.JSONObject done=new org.json.JSONObject().put("activeTurnId","").put("turns",new org.json.JSONArray().put(new org.json.JSONObject().put("id","turn").put("finishedAt",123)));scenario.onActivity(a->adapter[0].metadata(done));idle();assertFalse(device.hasObject(By.res(context.getPackageName(),"workLogList")));assertTrue(device.hasObject(By.text("Проверяю исправление")));assertFalse(device.hasObject(By.desc("Expand progress")));device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"progress-settled.png"));device.findObjects(By.desc("Expand tools")).get(0).click();idle();assertEquals(1,device.findObjects(By.res(context.getPackageName(),"workLogList")).size());scenario.onActivity(a->adapter[0].metadata(done));idle();assertEquals("Repeated metadata must preserve manual expansion",1,device.findObjects(By.res(context.getPackageName(),"workLogList")).size());scenario.onActivity(a->adapter[0].close());
         }
     }
 
@@ -230,8 +230,8 @@ public class ExpressiveUiTest {
         try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(chat())) {idle();scenario.onActivity(a->new ru.billyhargrove.pimobile.ui.EffortPopup(a.findViewById(R.id.effortButton),model,"low",true,()->opened[0]=true,value->sent[0]=value));assertTrue(device.wait(Until.hasObject(By.res(context.getPackageName(),"popupModelButton")),5000));device.findObject(By.res(context.getPackageName(),"popupModelButton")).click();idle();assertTrue(opened[0]);assertNull(sent[0]);}
     }
 
-    @Test public void paletteUsesAndroidSystemColors() {
-        try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){scenario.onActivity(a->{if(android.os.Build.VERSION.SDK_INT>=31){boolean dark=(a.getResources().getConfiguration().uiMode&android.content.res.Configuration.UI_MODE_NIGHT_MASK)==android.content.res.Configuration.UI_MODE_NIGHT_YES;assertEquals(a.getColor(dark?android.R.color.system_accent1_200:android.R.color.system_accent1_600),a.getColor(R.color.accent));assertEquals(a.getColor(dark?android.R.color.system_neutral1_900:android.R.color.system_neutral1_10),a.getColor(R.color.bg));}});}
+    @Test public void paletteUsesFixedNeutralColors() {
+        try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){scenario.onActivity(a->{boolean dark=(a.getResources().getConfiguration().uiMode&android.content.res.Configuration.UI_MODE_NIGHT_MASK)==android.content.res.Configuration.UI_MODE_NIGHT_YES;assertEquals(android.graphics.Color.parseColor(dark?"#FFFFFF":"#171717"),a.getColor(R.color.accent));assertEquals(android.graphics.Color.parseColor(dark?"#000000":"#FFFFFF"),a.getColor(R.color.bg));assertEquals(android.graphics.Color.parseColor(dark?"#303030":"#F4F4F4"),a.getColor(R.color.bubble_assistant));});}
     }
 
     @Test public void modelListChangesEffortRangeAndWaitsForDone() throws Exception {
@@ -308,7 +308,7 @@ public class ExpressiveUiTest {
             scenario.onActivity(a->{a.onConnectionState(ru.billyhargrove.pimobile.core.ConnectionState.CONNECTED,"");a.onCatalog(new ru.billyhargrove.pimobile.core.Catalog(java.util.Collections.singletonList(new ru.billyhargrove.pimobile.core.Workspace("mock-workspace","Пустое пространство","/mock")),null,null));});idle();
             java.util.concurrent.atomic.AtomicBoolean settled=new java.util.concurrent.atomic.AtomicBoolean();for(int i=0;i<80&&!settled.get();i++){scenario.onActivity(a->{View list=a.findViewById(R.id.catalogList);settled.set(list.getAlpha()==1f&&list.getTranslationY()==0f);});if(!settled.get())android.os.SystemClock.sleep(20);}assertTrue("Catalog entrance must settle",settled.get());
             assertTrue(device.wait(Until.hasObject(By.res(context.getPackageName(),"newSessionButton")),5000));device.findObject(By.res(context.getPackageName(),"newSessionButton")).click();
-            assertTrue(device.wait(Until.hasObject(By.text("Новая сессия")),5000));assertTrue(device.hasObject(By.textContains("Пустое пространство")));device.findObject(By.text("Отмена")).click();
+            assertTrue(device.wait(Until.hasObject(By.text("New session")),5000));assertTrue(device.hasObject(By.textContains("Пустое пространство")));device.findObject(By.text("Cancel")).click();
         }
     }
 
@@ -317,7 +317,7 @@ public class ExpressiveUiTest {
             idle();
             scenario.onActivity(a->{a.onConnectionState(ru.billyhargrove.pimobile.core.ConnectionState.CONNECTED,"");a.onCatalog(new ru.billyhargrove.pimobile.core.Catalog(java.util.Collections.singletonList(new ru.billyhargrove.pimobile.core.Workspace("mock-workspace","Тест","/mock")),java.util.Collections.singletonList(new ru.billyhargrove.pimobile.core.Session("mock-session","Тестовая задача","/mock","mock-workspace","mock-terminal",true,ru.billyhargrove.pimobile.core.SessionStatus.RUNNING,"mock/model")),null));});idle();
             assertTrue(device.wait(Until.hasObject(By.text("Тестовая задача")),5000));Rect bounds=device.findObject(By.text("Тестовая задача")).getVisibleBounds();device.swipe(device.getDisplayWidth()-80,bounds.centerY(),60,bounds.centerY(),18);
-            assertTrue(device.wait(Until.hasObject(By.text("Прервать Pi и закрыть вкладку?")),5000));assertTrue(device.hasObject(By.textContains("История останется на диске")));device.findObject(By.text("Отмена")).click();
+            assertTrue(device.wait(Until.hasObject(By.text("Interrupt Pi and close the tab?")),5000));assertTrue(device.hasObject(By.textContains("history will remain on disk")));device.findObject(By.text("Cancel")).click();
         }
     }
 
@@ -326,17 +326,35 @@ public class ExpressiveUiTest {
         try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)) {
             scenario.onActivity(a->{sheet[0]=new ru.billyhargrove.pimobile.ui.ArchiveSheet(a,(offset,query)->data,(id,title)->fail("Swipe must not resume"),(id,success,failure)->{assertEquals("mock-delete",id);deletes.incrementAndGet();});sheet[0].show();});
             assertTrue(device.wait(Until.hasObject(By.text("Удаляемый диалог")),5000));idle();Rect bounds=device.findObject(By.text("Удаляемый диалог")).getVisibleBounds();device.swipe(device.getDisplayWidth()-80,bounds.centerY(),60,bounds.centerY(),18);
-            assertTrue(device.wait(Until.hasObject(By.text("Удалить сессию с диска?")),5000));assertEquals(0,deletes.get());device.findObject(By.text("Удалить")).click();idle();assertEquals(1,deletes.get());scenario.onActivity(a->sheet[0].dismiss());
+            assertTrue(device.wait(Until.hasObject(By.text("Delete session from disk?")),5000));assertEquals(0,deletes.get());device.findObject(By.text("Delete")).click();idle();assertEquals(1,deletes.get());scenario.onActivity(a->sheet[0].dismiss());
         }
     }
 
     @Test public void deliveryPickerChangesModeWithoutSendingPrompt() {
         try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(chat())){
-            idle();device.findObject(By.res(context.getPackageName(),"deliveryButton")).click();assertTrue(device.wait(Until.hasObject(By.text("Steer · вмешаться")),5000));device.findObject(By.text("Steer · вмешаться")).click();idle();
+            idle();device.findObject(By.res(context.getPackageName(),"deliveryButton")).click();assertTrue(device.wait(Until.hasObject(By.text("Steer")),5000));device.findObject(By.text("Steer")).click();idle();
             scenario.onActivity(a->assertTrue(a.findViewById(R.id.deliveryButton).getContentDescription().toString().contains("Steer")));
-            device.findObject(By.res(context.getPackageName(),"deliveryButton")).click();assertTrue(device.wait(Until.hasObject(By.text("Queue · в очередь")),5000));device.findObject(By.text("Queue · в очередь")).click();idle();
+            device.findObject(By.res(context.getPackageName(),"deliveryButton")).click();assertTrue(device.wait(Until.hasObject(By.text("Queue")),5000));device.findObject(By.text("Queue")).click();idle();
             scenario.onActivity(a->assertTrue(a.findViewById(R.id.deliveryButton).getContentDescription().toString().contains("Queue")));
         }
+    }
+
+    @Test public void chatLoadingDisappearsAfterSnapshot()throws Exception {
+        try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(chat())){scenario.onActivity(a->{assertEquals(View.VISIBLE,a.findViewById(R.id.chatLoading).getVisibility());org.json.JSONObject f=new org.json.JSONObject();try{f.put("sessionId","ui-test-no-agent").put("status","idle").put("messages",new org.json.JSONArray());}catch(Exception e){throw new AssertionError(e);}a.onSnapshot(ru.billyhargrove.pimobile.core.SnapshotParser.parse(f));assertEquals(View.GONE,a.findViewById(R.id.chatLoading).getVisibility());});}
+    }
+
+    @Test public void bubbleColorPreferenceAndContrast(){
+        android.content.SharedPreferences prefs=context.getSharedPreferences("appearance",Context.MODE_PRIVATE);boolean had=prefs.contains("userBubble");int old=prefs.getInt("userBubble",0);
+        try{prefs.edit().putInt("userBubble",android.graphics.Color.WHITE).commit();assertEquals(android.graphics.Color.WHITE,ru.billyhargrove.pimobile.ui.BubbleColors.color(context));assertEquals(android.graphics.Color.BLACK,ru.billyhargrove.pimobile.ui.BubbleColors.foreground(android.graphics.Color.WHITE));assertEquals(android.graphics.Color.WHITE,ru.billyhargrove.pimobile.ui.BubbleColors.foreground(android.graphics.Color.BLACK));}finally{if(had)prefs.edit().putInt("userBubble",old).commit();else prefs.edit().remove("userBubble").commit();}
+    }
+
+    @Test public void updaterParsesPartialApkAndSharesOnlyUpdateDirectory()throws Exception {
+        java.io.File dir=new java.io.File(context.getCacheDir(),"updates");dir.mkdirs();java.io.File candidate=new java.io.File(dir,"test.part");
+        try{java.nio.file.Files.copy(new java.io.File(context.getApplicationInfo().sourceDir).toPath(),candidate.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            android.content.pm.PackageInfo info=context.getPackageManager().getPackageArchiveInfo(candidate.getAbsolutePath(),android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES);assertNotNull(info);assertEquals(context.getPackageName(),info.packageName);assertNotNull(info.signingInfo);assertTrue(info.signingInfo.getApkContentsSigners().length>0);
+            android.net.Uri uri=androidx.core.content.FileProvider.getUriForFile(context,context.getPackageName()+".updates",candidate);try(java.io.InputStream input=context.getContentResolver().openInputStream(uri)){assertEquals('P',input.read());assertEquals('K',input.read());}
+            try{androidx.core.content.FileProvider.getUriForFile(context,context.getPackageName()+".updates",new java.io.File(context.getFilesDir(),"private-token"));fail("Must not expose private app files");}catch(IllegalArgumentException expected){}
+        }finally{candidate.delete();}
     }
 
     private float whiteThumbCenter(View slider) {

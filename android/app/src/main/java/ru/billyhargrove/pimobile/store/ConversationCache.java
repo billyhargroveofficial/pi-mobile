@@ -1,0 +1,11 @@
+package ru.billyhargrove.pimobile.store;
+import java.io.*;import java.nio.charset.StandardCharsets;import java.nio.file.*;import java.security.MessageDigest;import java.util.*;import org.json.*;
+/** Bounded private, disposable cache. Caller uses a serial background executor. */
+public final class ConversationCache {
+ private final File directory;private static final long MAX_BYTES=2*1024*1024,TTL=7L*24*60*60*1000;
+ public ConversationCache(File directory){this.directory=directory;directory.mkdirs();}
+ public static String key(String endpoint,String token,String session){try{MessageDigest digest=MessageDigest.getInstance("SHA-256");byte[] hash=digest.digest((endpoint+"\n"+token+"\n"+session).getBytes(StandardCharsets.UTF_8));StringBuilder out=new StringBuilder();for(byte b:hash)out.append(String.format(Locale.ROOT,"%02x",b&255));return out.toString();}catch(Exception e){throw new IllegalStateException(e);}}
+ private File file(String key){if(!key.matches("[a-f0-9]{64}"))throw new IllegalArgumentException("Invalid cache key");return new File(directory,key+".json");}
+ public synchronized JSONObject read(String key){File f=file(key);try{if(!f.isFile()||f.length()>MAX_BYTES||System.currentTimeMillis()-f.lastModified()>TTL){f.delete();return null;}JSONObject value=new JSONObject(new String(Files.readAllBytes(f.toPath()),StandardCharsets.UTF_8));if(!"snapshot".equals(value.optString("type"))||value.optJSONArray("messages")==null)return null;return value;}catch(Exception e){f.delete();return null;}}
+ public synchronized void write(String key,String text){File target=file(key),temp=new File(directory,key+".tmp");try{byte[] bytes=text.getBytes(StandardCharsets.UTF_8);if(bytes.length>MAX_BYTES){target.delete();return;}directory.mkdirs();Files.write(temp.toPath(),bytes);try{Files.move(temp.toPath(),target.toPath(),StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);}catch(AtomicMoveNotSupportedException e){Files.move(temp.toPath(),target.toPath(),StandardCopyOption.REPLACE_EXISTING);}File[] files=directory.listFiles((d,n)->n.endsWith(".json"));if(files!=null){Arrays.sort(files,Comparator.comparingLong(File::lastModified).reversed());for(int i=0;i<files.length;i++)if(i>=8||System.currentTimeMillis()-files[i].lastModified()>TTL)files[i].delete();}}catch(Exception ignored){}finally{temp.delete();}}
+}

@@ -17,7 +17,7 @@ public final class SkillSuggestions {
     JSONObject c=config.get();JSONArray skills=c==null?null:c.optJSONArray("skills");if(skills==null)return;
     String prefix=text.substring(1).toLowerCase(java.util.Locale.ROOT);int shown=0;
     for(int i=0;i<skills.length()&&shown<5;i++){JSONObject skill=skills.optJSONObject(i);if(skill==null)continue;String name=skill.optString("name");if(!name.toLowerCase(java.util.Locale.ROOT).startsWith(prefix))continue;
-     TextView row=new TextView(list.getContext());row.setText("$"+name+"  ·  "+skill.optString("description"));row.setTextColor(list.getContext().getColor(R.color.text_primary));row.setTextSize(13);row.setSingleLine();row.setEllipsize(TextUtils.TruncateAt.END);int pad=Math.round(12*list.getResources().getDisplayMetrics().density);row.setPadding(pad,0,pad,0);row.setGravity(Gravity.CENTER_VERTICAL);row.setContentDescription("Навык "+name+". "+skill.optString("description"));
+     TextView row=new TextView(list.getContext());row.setText("$"+name+"  ·  "+skill.optString("description"));row.setTextColor(list.getContext().getColor(R.color.text_primary));row.setTextSize(13);row.setSingleLine();row.setEllipsize(TextUtils.TruncateAt.END);int pad=Math.round(12*list.getResources().getDisplayMetrics().density);row.setPadding(pad,0,pad,0);row.setGravity(Gravity.CENTER_VERTICAL);row.setContentDescription("Skill "+name+". "+skill.optString("description"));
      row.setOnClickListener(v->{input.setText("$"+name+" ");input.setSelection(input.length());});
      list.addView(row,new LinearLayout.LayoutParams(-1,Math.round(48*list.getResources().getDisplayMetrics().density)));shown++;
     }

@@ -28,12 +28,12 @@ public final class ImageViewer extends AppCompatDialogFragment {
     @NonNull @Override public Dialog onCreateDialog(Bundle state) {
         Dialog dialog=new Dialog(requireContext(),R.style.Theme_PiMobile);
         FrameLayout root=new FrameLayout(requireContext());root.setBackgroundColor(getResources().getColor(R.color.bg,null));
-        ZoomImage image=new ZoomImage(requireContext());image.setId(R.id.zoomImage);image.setContentDescription("Изображение. Масштаб: двумя пальцами или двойным нажатием");
+        ZoomImage image=new ZoomImage(requireContext());image.setId(R.id.zoomImage);image.setContentDescription("Image. Pinch or double-tap to zoom");
         root.addView(image,new FrameLayout.LayoutParams(-1,-1));
         TextView error=new TextView(requireContext());error.setGravity(Gravity.CENTER);error.setTextColor(getResources().getColor(R.color.danger,null));root.addView(error,new FrameLayout.LayoutParams(-1,-1));error.setVisibility(View.GONE);
         MaterialButton close=(MaterialButton)android.view.LayoutInflater.from(requireContext()).inflate(R.layout.icon_button,root,false);
         ExpressiveMotion.press(close);
-        close.setId(R.id.closeImageButton);close.setIconResource(R.drawable.ic_back);close.setContentDescription("Закрыть изображение");close.setOnClickListener(v->dismiss());
+        close.setId(R.id.closeImageButton);close.setIconResource(R.drawable.ic_back);close.setContentDescription("Close image");close.setOnClickListener(v->dismiss());
         int size=(int)(48*getResources().getDisplayMetrics().density);FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(size,size,Gravity.TOP|Gravity.START);p.setMargins(size/3,size/3,0,0);root.addView(close,p);
         dialog.setContentView(root);
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root,(v,insets)->{androidx.core.graphics.Insets b=insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars());v.setPadding(b.left,b.top,b.right,b.bottom);return insets;});

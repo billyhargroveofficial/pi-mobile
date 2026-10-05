@@ -87,7 +87,7 @@ public class SessionGroupingTest {
         }
         assertTrue(terminal != null);
         assertTrue(terminal.readOnly());
-        assertEquals("требуется расширение", terminal.badge());
+        assertEquals("extension required", terminal.badge());
         assertEquals("claude", terminal.subtitle());
         assertFalse(terminal.connected());
     }

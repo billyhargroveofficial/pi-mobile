@@ -79,13 +79,13 @@ public class ImageGuardTest {
             ImageGuard.validate(Collections.singletonList(image(0, "image/png")));
             fail("ожидалось исключение");
         } catch (IllegalArgumentException expected) {
-            assertTrue(expected.getMessage().contains("Пустой"));
+            assertTrue(expected.getMessage().contains("Empty"));
         }
         try {
             ImageGuard.validate(Arrays.asList(image(1, "image/png"), (ImagePayload) null));
             fail("ожидалось исключение");
         } catch (IllegalArgumentException expected) {
-            assertTrue(expected.getMessage().contains("Пустое"));
+            assertTrue(expected.getMessage().contains("Empty"));
         }
     }
 

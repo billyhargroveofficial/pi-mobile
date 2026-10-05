@@ -120,6 +120,22 @@ public final class PiClient extends WebSocketListener {
     private JSONObject configuration;
     private String configurationSessionId = "";
     private Runnable reconnectTask;
+    private ru.billyhargrove.pimobile.store.ConversationCache diskCache;
+    private final java.util.concurrent.ExecutorService cacheIo=java.util.concurrent.Executors.newSingleThreadExecutor();
+    private final LinkedHashMap<String,JSONObject> conversations=new LinkedHashMap<>(8,.75f,true);
+    private int subscriptionGeneration;private boolean subscriptionReady;
+    public void cacheDirectory(java.io.File directory){diskCache=new ru.billyhargrove.pimobile.store.ConversationCache(directory);}
+    private String cacheKey(String session){return ru.billyhargrove.pimobile.store.ConversationCache.key(baseUrl,token,session);}
+    private final java.util.Set<String> pendingCacheWrites=new java.util.HashSet<>();
+    private void retain(String key,JSONObject value){conversations.put(key,value);while(conversations.size()>8)conversations.remove(conversations.keySet().iterator().next());if(diskCache!=null&&pendingCacheWrites.add(key))main.postDelayed(()->{pendingCacheWrites.remove(key);JSONObject latest=conversations.get(key);if(latest!=null&&!cacheIo.isShutdown()){String json=latest.toString();cacheIo.execute(()->diskCache.write(key,json));}},750);}
+    public JSONObject cachedViewport(String session){JSONObject value=conversations.get(cacheKey(session));return value==null?null:value.optJSONObject("viewport");}
+    public void saveViewport(String session,String anchor,int offset,boolean follow){JSONObject value=conversations.get(cacheKey(session));if(value==null)return;try{value.put("viewport",new JSONObject().put("anchor",anchor).put("offset",offset).put("follow",follow));retain(cacheKey(session),value);}catch(JSONException ignored){}}
+    private void cacheFrame(JSONObject frame){String session=frame.optString("sessionId");if(session.isEmpty())return;String key=cacheKey(session);JSONObject prior=conversations.get(key);try{JSONObject next=ru.billyhargrove.pimobile.core.ConversationFrames.merge(prior,frame);if(prior!=null&&prior.has("viewport"))next.put("viewport",prior.get("viewport"));retain(key,next);}catch(JSONException ignored){}}
+    private void sendSubscription(){WebSocket ws=socket;if(!subscriptionReady||desiredSessionId==null||ws==null||state!=ConnectionState.CONNECTED)return;JSONObject frame=CommandBuilder.subscribe(desiredSessionId);JSONObject cached=conversations.get(cacheKey(desiredSessionId));try{if(cached!=null&&cached.has("checkpoint"))frame.put("resume",cached.get("checkpoint"));}catch(JSONException ignored){}sendFrame(ws,frame.toString());}
+    private void restoreAndSubscribe(String session,String key,int generation,JSONObject cached){if(generation!=subscriptionGeneration||!session.equals(desiredSessionId)||!key.equals(cacheKey(session)))return;JSONObject latest=conversations.get(key);if(latest!=null)cached=latest;
+        if(cached!=null&&session.equals(cached.optString("sessionId"))){conversations.put(key,cached);Snapshot parsed=SnapshotParser.parse(cached);if(parsed!=null){lastSnapshot=parsed;configuration=cached.optJSONObject("configuration");configurationSessionId=session;if(listener!=null){try{JSONObject meta=new JSONObject(cached.toString()).put("cached",true);listener.onTimelineMeta(meta);}catch(JSONException ignored){}if(configuration!=null)listener.onConfiguration(session,configuration);listener.onSnapshot(parsed);}}}
+        subscriptionReady=true;sendSubscription();
+    }
 
     public PiClient(OkHttpClient http, HttpApi api) {
         this.http = http;
@@ -148,7 +164,9 @@ public final class PiClient extends WebSocketListener {
             setState(ConnectionState.ERROR, russianReason(result));
             return;
         }
-        this.baseUrl = EndpointPolicy.normalize(baseUrl);
+        String nextUrl=EndpointPolicy.normalize(baseUrl),nextToken=token==null?"":token.trim();
+        if(!this.baseUrl.equals(nextUrl)||!this.token.equals(nextToken)){subscriptionGeneration++;subscriptionReady=false;desiredSessionId=null;lastSnapshot=null;configuration=null;configurationSessionId="";}
+        this.baseUrl = nextUrl;
         this.token = token == null ? "" : token.trim();
         this.authRejected = false;
         this.attempt = 0;
@@ -162,8 +180,8 @@ public final class PiClient extends WebSocketListener {
     public void disconnect() {
         shuttingDown = true;
         cancelReconnect();
-        desiredSessionId = null;
-        failAllPending("Соединение закрыто пользователем");
+        desiredSessionId = null;subscriptionGeneration++;subscriptionReady=false;
+        failAllPending("Connection closed by user");
         closeSocket();
         setState(ConnectionState.DISCONNECTED, "");
     }
@@ -172,11 +190,9 @@ public final class PiClient extends WebSocketListener {
 
     /** Remembers the session and subscribes now, or on the next (re)connect. */
     public void subscribe(String sessionId) {
-        desiredSessionId = sessionId;
-        WebSocket ws = socket;
-        if (ws != null && state == ConnectionState.CONNECTED) {
-            sendFrame(ws, CommandBuilder.subscribe(sessionId).toString());
-        }
+        desiredSessionId=sessionId;subscriptionReady=false;int generation=++subscriptionGeneration;String key=cacheKey(sessionId);JSONObject cached=conversations.get(key);
+        if(cached!=null||diskCache==null){restoreAndSubscribe(sessionId,key,generation,cached);return;}
+        cacheIo.execute(()->{JSONObject disk=diskCache.read(key);main.post(()->restoreAndSubscribe(sessionId,key,generation,disk));});
     }
 
     /**
@@ -308,9 +324,7 @@ public final class PiClient extends WebSocketListener {
             public void run() {
                 attempt = 0;
                 setState(ConnectionState.CONNECTED, baseUrl);
-                if (desiredSessionId != null) {
-                    sendFrame(webSocket, CommandBuilder.subscribe(desiredSessionId).toString());
-                }
+                sendSubscription();
             }
         });
     }
@@ -350,8 +364,8 @@ public final class PiClient extends WebSocketListener {
         runOnMain(new Runnable() {
             @Override
             public void run() {
-                failAllPending("Соединение закрыто до подтверждения");
-                scheduleReconnect("Соединение закрыто");
+                failAllPending("Connection closed before acknowledgment");
+                scheduleReconnect("Connection closed");
             }
         });
     }
@@ -365,15 +379,15 @@ public final class PiClient extends WebSocketListener {
         runOnMain(new Runnable() {
             @Override
             public void run() {
-                failAllPending("Соединение потеряно до подтверждения");
+                failAllPending("Connection lost before acknowledgment");
                 int code = response == null ? 0 : response.code();
                 if (code == 401 || code == 403) {
                     authRejected = true;
                     setState(ConnectionState.ERROR,
-                            "Токен отклонён сервером (HTTP " + code + "). Откройте настройки и проверьте токен.");
+                            "Server rejected the token (HTTP " + code + "). Check your token in Settings.");
                     return;
                 }
-                String reason = t == null || t.getMessage() == null ? "сетевая ошибка" : t.getMessage();
+                String reason = t == null || t.getMessage() == null ? "network error" : t.getMessage();
                 scheduleReconnect(reason);
             }
         });
@@ -389,10 +403,12 @@ public final class PiClient extends WebSocketListener {
         try {
             object = new JSONObject(text);
         } catch (JSONException e) {
-            notifyProtocolError("Нераспознанный кадр от сервера");
+            notifyProtocolError("Unrecognized server frame");
             return;
         }
         String type = object.optString("type", "");
+        if("snapshot".equals(type)||"messages".equals(type))cacheFrame(object);
+        if("ack".equals(type)&&object.optBoolean("ok")){JSONObject data=object.optJSONObject("data");if(data!=null&&"history".equals(data.optString("type"))){String key=cacheKey(object.optString("sessionId"));try{JSONObject merged=ru.billyhargrove.pimobile.core.ConversationFrames.prepend(conversations.get(key),data);if(merged!=null)retain(key,merged);}catch(JSONException ignored){}}}
         if (("snapshot".equals(type) || "messages".equals(type)) && object.optJSONObject("configuration") != null) {
             configuration = object.optJSONObject("configuration");
             configurationSessionId = object.optString("sessionId", "");
@@ -421,6 +437,8 @@ public final class PiClient extends WebSocketListener {
                 break;
             }
             case "messages": {
+                // Reconcile the resumed tail in server order while retaining cached older pages.
+                if(object.optBoolean("resumed")){JSONObject merged=conversations.get(cacheKey(object.optString("sessionId")));Snapshot restored=merged==null?null:SnapshotParser.parse(merged);if(restored!=null){lastSnapshot=restored;if(listener!=null)listener.onSnapshot(restored);break;}}
                 MessagesUpdate parsed = MessagesParser.parse(object);
                 if (parsed != null && listener != null) {
                     listener.onMessages(parsed);
@@ -465,9 +483,9 @@ public final class PiClient extends WebSocketListener {
                     return;
                 }
                 if (listener != null) {
-                    String what = abort ? "остановку" : "команду";
+                    String what = abort ? "stop request" : "command";
                     listener.onCommandUncertain(requestId, sessionId,
-                            "Сервер не подтвердил " + what + " за " + (ACK_TIMEOUT_MS / 1000) + " с");
+                            "Server did not acknowledge the " + what + " within " + (ACK_TIMEOUT_MS / 1000) + " s");
                 }
             }
         };
@@ -504,7 +522,7 @@ public final class PiClient extends WebSocketListener {
         long jitter = random.nextInt(400) - 200L;
         long effective = Math.max(500L, delay + jitter);
         setState(ConnectionState.RECONNECTING,
-                "Повтор через " + Math.round(effective / 1000.0) + " с" + (reason.isEmpty() ? "" : " · " + reason));
+                "Retrying in " + Math.round(effective / 1000.0) + " s" + (reason.isEmpty() ? "" : " · " + reason));
         cancelReconnect();
         reconnectTask = new Runnable() {
             @Override
@@ -513,7 +531,7 @@ public final class PiClient extends WebSocketListener {
                 if (shuttingDown || authRejected) {
                     return;
                 }
-                setState(ConnectionState.CONNECTING, "Переподключение к " + baseUrl);
+                setState(ConnectionState.CONNECTING, "Reconnecting to " + baseUrl);
                 openSocket();
             }
         };
@@ -563,7 +581,7 @@ public final class PiClient extends WebSocketListener {
         }
     }
 
-    /** Russian, user-showable explanation for a rejected endpoint. */
+    /** User-showable explanation for a rejected endpoint. */
     public static String describeResult(EndpointPolicy.Result result) {
         return russianReason(result);
     }
@@ -571,21 +589,21 @@ public final class PiClient extends WebSocketListener {
     private static String russianReason(EndpointPolicy.Result result) {
         switch (result) {
             case EMPTY:
-                return "Укажите адрес сервера.";
+                return "Enter a server URL.";
             case MALFORMED:
-                return "Некорректный адрес сервера.";
+                return "Invalid server URL.";
             case UNSUPPORTED_SCHEME:
-                return "Поддерживаются только http (debug) и https.";
+                return "Only HTTPS and HTTP (debug) are supported.";
             case CLEARTEXT_NOT_ALLOWED:
-                return "HTTP разрешён только для 10.0.2.2 и localhost в debug-сборке. Используйте https.";
+                return "HTTP is allowed only for 10.0.2.2 and localhost in debug builds. Use HTTPS.";
             case HAS_CREDENTIALS:
-                return "Уберите логин и пароль из адреса: токен вводится отдельно.";
+                return "Remove credentials from the URL; enter your token separately.";
             case HAS_QUERY_OR_FRAGMENT:
-                return "Адрес не должен содержать параметры или якорь.";
+                return "URL must not contain a query or fragment.";
             case MISSING_HOST:
-                return "В адресе отсутствует хост.";
+                return "URL is missing a host.";
             default:
-                return "Адрес отклонён.";
+                return "URL rejected.";
         }
     }
 
@@ -596,7 +614,7 @@ public final class PiClient extends WebSocketListener {
 
     /** Removes callbacks; call from {@code Application#onTerminate} only. */
     public void shutdown() {
-        disconnect();
+        disconnect();cacheIo.shutdown();
         Iterator<Map.Entry<String, Pending>> it = pending.entrySet().iterator();
         while (it.hasNext()) {
             main.removeCallbacks(it.next().getValue().timeoutTask);

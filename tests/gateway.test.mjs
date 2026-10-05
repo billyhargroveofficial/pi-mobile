@@ -26,4 +26,24 @@ test('commands route to one owner, deduplicate, reject offline and update subscr
  a.write(JSON.stringify({type:'snapshot',id:'a',messages:[{role:'assistant',content:'streaming',timestamp:4}],status:'running'})+'\n');assert.equal((await next(x=>x.type==='messages')).messages[0].text,'streaming');
  a.destroy();await next(x=>x.type==='snapshot'&&!x.connected);ws.send(JSON.stringify({...c,requestId:'r2'}));assert.equal((await next(x=>x.type==='ack')).ok,false);ws.close();
 });
+test('history pagination cannot exhaust prompt budget and two images reach the owner',async t=>{
+ const {g,base,headers}=await fixture(t),owner=await bridge(g,'pages');let captured;
+ let buffer='';owner.on('data',raw=>{buffer+=String(raw);let end;while((end=buffer.indexOf('\n'))>=0){const c=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);if(c.command==='prompt')captured=c;owner.write(JSON.stringify({type:'ack',requestId:c.requestId,ok:true})+'\n');}});
+ const ws=new WebSocket(base.replace('http','ws')+'/ws',{headers}),next=inbox(ws);await once(ws,'open');t.after(()=>ws.close());
+ async function send(command,requestId,extra={}){ws.send(JSON.stringify({type:'command',command,sessionId:'pages',requestId,...(command==='history'?{before:'user:1'}:{}),...extra}));return next(x=>x.type==='ack'&&x.requestId===requestId);}
+ for(let i=0;i<120;i++)assert.equal((await send('history','history-'+i)).ok,true);
+ assert.equal((await send('history','history-over-limit')).ok,false);
+ assert.equal((await send('prompt','pictures',{text:'Two references',images:[image,image]})).ok,true);
+ assert.equal(captured.images.length,2);assert.deepEqual(captured.images,[image,image]);
+ assert.equal((await send('abort','stop-after-history')).ok,true);
+});
+test('conditional subscribe sends only edits and new rows, restart epoch falls back to snapshot',async t=>{
+ const {g,base,headers}=await fixture(t),owner=await bridge(g,'cached');
+ const open=async()=>{const ws=new WebSocket(base.replace('http','ws')+'/ws',{headers}),next=inbox(ws);await once(ws,'open');t.after(()=>ws.close());await next(f=>f.type==='catalog');return {ws,next};};
+ const first=await open();first.ws.send(JSON.stringify({type:'subscribe',sessionId:'cached'}));const initial=await first.next(f=>f.type==='snapshot');assert.ok(initial.checkpoint);first.ws.close();
+ owner.write(JSON.stringify({type:'snapshot',id:'cached',epoch:0,messages:[{role:'user',content:'history cached',timestamp:1},{role:'assistant',content:'new answer',timestamp:4}],status:'idle'})+'\n');await pause();
+ const second=await open();second.ws.send(JSON.stringify({type:'subscribe',sessionId:'cached',resume:initial.checkpoint}));const delta=await second.next(f=>f.type==='messages');assert.equal(delta.resumed,true);assert.equal(delta.messages.length,1);assert.equal(delta.messages[0].text,'new answer');assert.deepEqual(delta.removedIds,['tool:img']);
+ second.ws.send(JSON.stringify({type:'subscribe',sessionId:'cached',resume:delta.checkpoint}));assert.equal((await second.next(f=>f.type==='messages')).messages.length,0);
+ second.ws.send(JSON.stringify({type:'subscribe',sessionId:'cached',resume:{...delta.checkpoint,epoch:999}}));assert.equal((await second.next(f=>f.type==='snapshot')).messages.length,2);
+});
 test('duplicate live owner cannot steal a session; another gateway cannot unlink socket',async t=>{const {g,dir,base,headers}=await fixture(t);const original=await bridge(g,'same');const bad=net.connect(g.socketPath);await once(bad,'connect');bad.write(JSON.stringify({type:'register',meta:{id:'same',cwd:'/evil'},messages:[]})+'\n');await once(bad,'close');assert.equal(original.destroyed,false);const cat=await(await fetch(base+'/api/catalog',{headers})).json();assert.equal(cat.sessions[0].cwd,'/tmp/same');await assert.rejects(createGateway({dataDir:dir,port:0,orca:false}),/already running/);});

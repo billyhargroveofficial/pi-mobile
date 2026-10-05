@@ -12,6 +12,16 @@ public final class WorkLogView extends FrameLayout {
   fade=new View(c){Paint p=new Paint();@Override protected void onDraw(Canvas canvas){int rgb=getContext().getColor(R.color.bubble_tool);p.setShader(new LinearGradient(0,0,0,getHeight(),rgb,rgb&0xffffff,Shader.TileMode.CLAMP));canvas.drawRect(0,0,getWidth(),getHeight(),p);}};fade.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);fade.setVisibility(GONE);addView(fade,new LayoutParams(-1,dp(24),Gravity.TOP));
   list.addOnScrollListener(new RecyclerView.OnScrollListener(){@Override public void onScrolled(RecyclerView v,int x,int y){fade.setVisibility(v.canScrollVertically(-1)?VISIBLE:GONE);saveAnchor();}});
  }
+ private float reveal=1f;private android.animation.ValueAnimator revealAnimator;
+ public void expanded(boolean expanded,boolean animate){
+  float target=expanded?1f:0f;if(revealAnimator!=null){revealAnimator.cancel();revealAnimator=null;}
+  if(!animate||!ExpressiveMotion.enabled()){reveal=target;setVisibility(expanded?VISIBLE:GONE);requestLayout();return;}
+  setVisibility(VISIBLE);revealAnimator=android.animation.ValueAnimator.ofFloat(reveal,target);revealAnimator.setDuration(240);revealAnimator.setInterpolator(new android.view.animation.PathInterpolator(.2f,0f,0f,1f));
+  revealAnimator.addUpdateListener(a->{reveal=(float)a.getAnimatedValue();setAlpha(.4f+.6f*reveal);requestLayout();});
+  revealAnimator.addListener(new android.animation.AnimatorListenerAdapter(){private boolean cancelled;public void onAnimationCancel(android.animation.Animator a){cancelled=true;}public void onAnimationEnd(android.animation.Animator a){if(!cancelled){setVisibility(expanded?VISIBLE:GONE);setAlpha(1f);}}});revealAnimator.start();
+ }
+ @Override protected void onMeasure(int w,int h){super.onMeasure(w,MeasureSpec.makeMeasureSpec(dp(200),MeasureSpec.AT_MOST));setMeasuredDimension(getMeasuredWidth(),Math.round(getMeasuredHeight()*reveal));}
+ @Override protected void onDetachedFromWindow(){if(revealAnimator!=null)revealAnimator.cancel();super.onDetachedFromWindow();}
  private int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
  private void saveAnchor(){int first=layout.findFirstVisibleItemPosition();if(first<0||first>=messages.size()||turn.isEmpty())return;View top=layout.findViewByPosition(first);anchors.put(turn,new Anchor(messages.get(first).stableKey(),top==null?0:top.getTop(),!list.canScrollVertically(1)));}
  public void submit(String id,List<ChatMessage> source){saveAnchor();boolean same=turn.equals(id);Anchor saved=anchors.get(id);List<ChatMessage> old=messages,next=source==null?Collections.emptyList():new ArrayList<>(source);turn=id;final long version=++revision;

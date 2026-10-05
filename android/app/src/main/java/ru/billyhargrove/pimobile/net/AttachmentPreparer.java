@@ -15,9 +15,9 @@ public final class AttachmentPreparer {
   if(name==null||name.isBlank())name="file";
   name=name.replaceAll("[\\\\/\\x00-\\x1f]","_");if(name.length()>200)name=name.substring(0,200);
   try(InputStream input=resolver.openInputStream(uri);ByteArrayOutputStream out=new ByteArrayOutputStream()){
-   if(input==null)throw new IOException("Не удалось открыть файл");byte[] buffer=new byte[8192];long read=0;int n;
-   while((n=input.read(buffer))!=-1){read+=n;if(read>budget)throw new IOException("Вложения должны занимать не более 10 МБ суммарно");out.write(buffer,0,n);}
-   if(read==0)throw new IOException("Пустой файл");return ImagePayload.file(out.toByteArray(),name);
+   if(input==null)throw new IOException("Could not open file");byte[] buffer=new byte[8192];long read=0;int n;
+   while((n=input.read(buffer))!=-1){read+=n;if(read>budget)throw new IOException("Attachments must total no more than 10 MB");out.write(buffer,0,n);}
+   if(read==0)throw new IOException("Empty file");return ImagePayload.file(out.toByteArray(),name);
   }
  }
 }

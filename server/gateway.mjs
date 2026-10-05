@@ -9,6 +9,8 @@ import {Archive} from './archive.mjs';
 import {Lifecycle} from './lifecycle.mjs';
 import {decodeFile,attachFiles,attachmentDisplay} from './attachments.mjs';
 import {audioBytes,transcribe} from './speech.mjs';
+import {cachedUsage,readUsage} from './usage.mjs';
+import {checkpoint,resumeDelta} from './conversation-sync.mjs';
 
 export const MAX_IMAGE=10*1024*1024;
 const MAX_FRAME=32*1024*1024;
@@ -64,7 +66,7 @@ export function validateCommand(c){
   return {type:'command',sessionId:c.sessionId,requestId:c.requestId,command:'prompt',text:c.text,images:images.map(i=>({type:'image',mimeType:i.mimeType,data:i.data})),behavior:c.behavior||'followUp',...(files.length?{files:files.map(f=>({name:f.name,data:f.data}))}:{})};
 }
 
-export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=true,token:providedToken,orcaReader=readOrca,archiveList,archiveLaunch,newLaunch,closeTerminal,speechTranscribe=transcribe,basePath=''}={}){
+export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=true,token:providedToken,orcaReader=readOrca,archiveList,archiveLaunch,newLaunch,closeTerminal,speechTranscribe=transcribe,usageReader=readUsage,basePath=''}={}){
   if(!dataDir)throw Error('dataDir required');
   if(typeof basePath!=='string'||(basePath&&!/^\/[a-zA-Z0-9_/-]+$/.test(basePath)))throw Error('Invalid base path');
   basePath=basePath.replace(/\/+$/,'');
@@ -95,12 +97,13 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
   const broadcastCatalog=()=>{const c=catalog();for(const ws of wss.clients)send(ws,c);};
   const config=m=>({capabilities:(Array.isArray(m?.capabilities)?m.capabilities:[]).filter(x=>['skills','mcp','name'].includes(x)),skills:(Array.isArray(m?.skills)?m.skills:[]).slice(0,500).filter(x=>typeof x?.name==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(x.name)).map(x=>({name:x.name,description:String(x.description||'').slice(0,1024)})),model:String(m?.model||'').slice(0,300),thinkingLevel:String(m?.thinkingLevel||'off'),models:(Array.isArray(m?.models)?m.models:[]).slice(0,1000).filter(x=>typeof x.provider==='string'&&typeof x.id==='string').map(x=>({provider:x.provider.slice(0,200),id:x.id.slice(0,200),name:String(x.name||x.id).slice(0,200),thinkingLevels:(Array.isArray(x.thinkingLevels)?x.thinkingLevels:[]).filter(x=>['off','minimal','low','medium','high','xhigh','max'].includes(x))})),modelsTruncated:!!m?.modelsTruncated});
   const pageMeta=p=>({history:{before:String(p.history?.before||'').slice(0,500),hasMore:p.history?.hasMore===true},epoch:Number(p.epoch)||0,activeTurnId:String(p.activeTurnId||''),turns:(Array.isArray(p.turns)?p.turns:[]).slice(-100).map(t=>({id:String(t.id||''),startedAt:Number(t.startedAt)||0,finishedAt:Number(t.finishedAt)||null,outputTokens:Math.max(0,Number(t.outputTokens)||0),generationMs:Math.max(0,Number(t.generationMs)||0)}))});
-  const snapshot=s=>({type:'snapshot',sessionId:s.meta.id,status:s.socket?s.status:'offline',connected:!!s.socket,messages:s.messages,truncated:s.truncated,configuration:s.configuration,...s.page});
+  const syncStream=crypto.randomUUID();
+  const snapshot=s=>({type:'snapshot',sessionId:s.meta.id,status:s.socket?s.status:'offline',connected:!!s.socket,messages:s.messages,truncated:s.truncated,configuration:s.configuration,...s.page,checkpoint:checkpoint(syncStream+':'+s.meta.id+':'+s.syncId,s.page.epoch,s.messages)});
   const broadcastSnapshot=(s,previous,configChanged=false)=>{for(const ws of wss.clients)if(ws.sessionId===s.meta.id){
     if(!previous){send(ws,snapshot(s));continue;}
     const old=new Map(previous.map(m=>[m.id,JSON.stringify(m)])),ids=new Set(s.messages.map(m=>m.id));
     const overlap=previous.findIndex(m=>m.id===s.messages[0]?.id);
-    send(ws,{type:'messages',sessionId:s.meta.id,status:s.socket?s.status:'offline',connected:!!s.socket,truncated:s.truncated,turns:s.page.turns,activeTurnId:s.page.activeTurnId,epoch:s.page.epoch,...(configChanged?{configuration:s.configuration}:{}),messages:s.messages.filter(m=>old.get(m.id)!==JSON.stringify(m)),removedIds:previous.filter((m,i)=>overlap>=0&&i>=overlap&&!ids.has(m.id)).map(m=>m.id)});
+    send(ws,{type:'messages',sessionId:s.meta.id,checkpoint:checkpoint(syncStream+':'+s.meta.id+':'+s.syncId,s.page.epoch,s.messages),order:s.messages.map(m=>m.id),status:s.socket?s.status:'offline',connected:!!s.socket,truncated:s.truncated,turns:s.page.turns,activeTurnId:s.page.activeTurnId,epoch:s.page.epoch,...(configChanged?{configuration:s.configuration}:{}),messages:s.messages.filter(m=>old.get(m.id)!==JSON.stringify(m)),removedIds:previous.filter((m,i)=>overlap>=0&&i>=overlap&&!ids.has(m.id)).map(m=>m.id)});
   }};
   function normalize(id,messages,activeTurn=''){
     let truncated=messages.length>200;
@@ -155,6 +158,7 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
   }
   const archive=new Archive({dataDir,inventory:syncInventory,owners:()=>[...sessions.values()].filter(s=>s.socket&&!s.socket.destroyed).map(s=>s.meta),list:archiveList,launch:archiveLaunch});
   const lifecycle=new Lifecycle({dataDir,inventory:syncInventory,owners:()=>[...sessions.values()].filter(s=>s.socket&&!s.socket.destroyed).map(s=>({...s.meta,status:s.status})),launch:newLaunch,close:closeTerminal});
+  const usage=cachedUsage(orca?usageReader:async()=>{throw Error('Orca disabled');});
   const server=http.createServer(async(req,res)=>{
     try{
       const route=routeUrl(req.url);if(route===null)return json(res,404,{error:'Not found'});
@@ -170,6 +174,7 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
       }
       if(req.method!=='GET')return json(res,405,{error:'Method not allowed'});
       if(u.pathname==='/api/catalog')return json(res,200,catalog());
+      if(u.pathname==='/api/usage')return json(res,200,await usage());
       if(u.pathname==='/api/archive'){
         const offset=Number(u.searchParams.get('offset')||0),query=u.searchParams.get('q')||'';
         if(!Number.isInteger(offset)||offset<0||offset>100000||query.length>200)throw Error('Invalid archive query');
@@ -196,15 +201,17 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
   }
   wss.on('connection',ws=>{
     send(ws,catalog());ws.alive=true;ws.on('pong',()=>ws.alive=true);ws.on('error',()=>{});
-    let recent=[];
+    const recent={read:[],write:[]};
     ws.on('message',raw=>{
       let c;try{
-        c=JSON.parse(raw);if(c.type==='subscribe'){const s=sessions.get(c.sessionId);if(!s)throw Error('Session not found');ws.sessionId=c.sessionId;send(ws,snapshot(s));return;}
+        c=JSON.parse(raw);if(c.type==='subscribe'){const s=sessions.get(c.sessionId);if(!s)throw Error('Session not found');ws.sessionId=c.sessionId;const current=snapshot(s);send(ws,resumeDelta(current,c.resume)||current);return;}
         if(c.type!=='command')throw Error('Unknown message');
         c=validateCommand(c);const fingerprint=hash(JSON.stringify(c));
         const receipt=receipts.get(c.requestId);if(receipt){if(receipt.hash!==fingerprint)throw Error('Request ID reused');send(ws,receipt.result);return;}
         const inflight=pending.get(c.requestId);if(inflight){if(inflight.hash!==fingerprint)throw Error('Request ID reused');inflight.clients.add(ws);return;}
-        recent=recent.filter(t=>Date.now()-t<60000);if(recent.length>=30)throw Error('Too many commands');recent.push(Date.now());
+        // History pagination must not consume the budget for sending a prompt or stopping Pi.
+        const bucket=['history','document','mcp'].includes(c.command)?'read':'write',now=Date.now();
+        recent[bucket]=recent[bucket].filter(t=>now-t<60000);if(recent[bucket].length>=(bucket==='read'?120:30))throw Error('Too many '+bucket+' commands');recent[bucket].push(now);
         if(['resume','new','close','delete'].includes(c.command)){
           if(pending.size>=100)throw Error('Too many pending commands');
           const timer=setTimeout(()=>complete(c.requestId,{ok:false,error:'Результат запуска неизвестен. Проверь Orca на Mac; не запускай копию'}),30000);timer.unref();
@@ -242,7 +249,7 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
           id=m.id;
           const meta={id,title:String(m.title||'').slice(0,200),cwd:m.cwd,terminalId:String(m.terminalId||''),workspaceId:String(m.workspaceId||''),model:String(m.model||'')};
           const normalized=normalize(id,packet.messages,packet.status==='running'?String(packet.activeTurnId||''):'');
-          const s={meta,configuration:config(m),page:pageMeta(packet),socket,status:packet.status==='running'?'running':'idle',...normalized,truncated:!!packet.truncated||normalized.truncated};sessions.set(id,s);broadcastCatalog();broadcastSnapshot(s);
+          const s={meta,syncId:crypto.randomUUID(),configuration:config(m),page:pageMeta(packet),socket,status:packet.status==='running'?'running':'idle',...normalized,truncated:!!packet.truncated||normalized.truncated};sessions.set(id,s);broadcastCatalog();broadcastSnapshot(s);
         }else if(packet.type==='snapshot'){
           if(!id||packet.id!==id||!Array.isArray(packet.messages))throw Error('Wrong session');const s=sessions.get(id);if(s?.socket!==socket)throw Error('Wrong owner');
           const old=s.status,previous=s.messages,oldEpoch=s.page.epoch;s.page=pageMeta(packet); const normalized=normalize(id,packet.messages,packet.status==='running'?String(packet.activeTurnId||''):'');Object.assign(s,normalized,{status:packet.status==='running'?'running':'idle',truncated:!!packet.truncated||normalized.truncated});

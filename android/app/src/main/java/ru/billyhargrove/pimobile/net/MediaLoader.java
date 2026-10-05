@@ -18,7 +18,7 @@ import ru.billyhargrove.pimobile.store.SettingsStore;
  *
  * <p>{@link MediaUrlPolicy} decides whether a URL may be fetched at all. If the
  * gateway ever returned an absolute URL on another host, the loader refuses it and
- * reports "внешний источник заблокирован" – the token is never sent elsewhere.</p>
+ * reports "external source blocked" – the token is never sent elsewhere.</p>
  *
  * <p>Decoding happens on the background pool with a bounded sample size, and a
  * small in-memory LRU cache keeps repeated snapshots cheap. Nothing is written to
@@ -58,7 +58,7 @@ public final class MediaLoader {
             AppExecutors.main(new Runnable() {
                 @Override
                 public void run() {
-                    callback.onFailed("", "Внешний источник заблокирован: изображение не с этого сервера");
+                    callback.onFailed("", "External source blocked: image is not from this server");
                 }
             });
             return;
@@ -99,10 +99,10 @@ public final class MediaLoader {
                     byte[] bytes = api.fetchMedia(baseUrl, token, rawUrl);
                     bitmap = decodeBounded(bytes);
                     if (bitmap == null) {
-                        error = "Не удалось декодировать изображение";
+                        error = "Could not decode image";
                     }
                 } catch (Exception e) {
-                    error = e.getMessage() == null ? "Не удалось загрузить изображение" : e.getMessage();
+                    error = e.getMessage() == null ? "Could not load image" : e.getMessage();
                 }
                 final Bitmap result = bitmap;
                 final String failure = error;
@@ -122,7 +122,7 @@ public final class MediaLoader {
                             if (result != null) {
                                 cb.onLoaded(resolved, result);
                             } else {
-                                cb.onFailed(resolved, failure == null ? "Ошибка загрузки" : failure);
+                                cb.onFailed(resolved, failure == null ? "Loading failed" : failure);
                             }
                         }
                     }

@@ -58,8 +58,8 @@ import ru.billyhargrove.pimobile.ui.SystemInsets;
  * <p>Command lifecycle: the composer is cleared only after the frame has been
  * written to the socket, and every command keeps its draft. If the gateway
  * rejects it the text comes back to the composer; if no ack arrives the message is
- * marked "статус неизвестен" and is never replayed automatically – only an
- * explicit tap on "Повторить вручную" sends it again.</p>
+ * marked "status unknown" and is never replayed automatically – only an
+ * explicit tap on "Retry manually" sends it again.</p>
  */
 public final class ChatActivity extends AppCompatActivity
         implements PiClient.Listener, MessageAdapter.Listener, MessageAdapter.LocalThumbProvider {
@@ -104,10 +104,12 @@ public final class ChatActivity extends AppCompatActivity
     private MessageAdapter adapter;
     private RecyclerView messageList;
     private EditText composerInput;
+    private ru.billyhargrove.pimobile.ui.ChatLoading loadingUi;
     private Button sendButton;
     private ru.billyhargrove.pimobile.ui.DictationRecorder dictation;
     private boolean transcribing;
-    private final ActivityResultLauncher<String> microphonePermission=registerForActivityResult(new ActivityResultContracts.RequestPermission(),granted->{if(granted)startDictation();else toast("Для диктовки нужен доступ к микрофону");});
+    private boolean preparingAttachments;
+    private final ActivityResultLauncher<String> microphonePermission=registerForActivityResult(new ActivityResultContracts.RequestPermission(),granted->{if(granted)startDictation();else toast("Microphone permission is required for dictation");});
     private Button attachButton;
     private Button stopButton;
     private Button backButton;
@@ -196,6 +198,7 @@ public final class ChatActivity extends AppCompatActivity
         messageList.setAdapter(adapter);
         // Live diffs must not animate row relocation or steal the reading anchor.
         messageList.setItemAnimator(null);
+        loadingUi=new ru.billyhargrove.pimobile.ui.ChatLoading((android.widget.FrameLayout)messageList.getParent());
 
         new ru.billyhargrove.pimobile.ui.CompactComposer(findViewById(R.id.composerEditor), composerInput);
         new ru.billyhargrove.pimobile.ui.SkillSuggestions(findViewById(R.id.skillSuggestions),composerInput,()->configuration);
@@ -233,19 +236,13 @@ public final class ChatActivity extends AppCompatActivity
         client.setListener(this);
         configuration = client.configuration(sessionId);
         client.subscribe(sessionId);
-        Snapshot cached = client.lastSnapshot();
-        if (cached != null && sessionId.equals(cached.sessionId())) {
-            applySnapshot(cached);
-        }
-        if (client.state() != ConnectionState.CONNECTED) {
-            fetchSnapshotOverRest();
-        }
     }
 
     @Override
     protected void onStop() {
         super.onStop();
         if(dictation!=null){dictation.cancel();dictation=null;}
+        LinearLayoutManager layout=(LinearLayoutManager)messageList.getLayoutManager();int first=layout.findFirstVisibleItemPosition();View top=layout.findViewByPosition(first);if(first>=0&&top!=null)client.saveViewport(sessionId,adapter.keyAt(first),top.getTop()-messageList.getPaddingTop(),followTail);
         client.clearListener(this);
     }
 
@@ -255,6 +252,7 @@ public final class ChatActivity extends AppCompatActivity
         if (effortPopup != null) effortPopup.dismiss();
         if(documentPreview!=null)documentPreview.dismiss();
         if(adapter!=null)adapter.close();
+        if(loadingUi!=null)loadingUi.close();
         super.onDestroy();
     }
 
@@ -266,16 +264,16 @@ public final class ChatActivity extends AppCompatActivity
 
     private void openQuickEffort(View anchor) {
         if (configurationRequest != null) return;
-        if (configuration == null || client.state() != ConnectionState.CONNECTED) { toast("Сначала подключись к Pi"); return; }
+        if (configuration == null || client.state() != ConnectionState.CONNECTED) { toast("Connect to Pi first"); return; }
         org.json.JSONArray models = configuration.optJSONArray("models");
         org.json.JSONObject selected = null;
         if (models != null) for (int i = 0; i < models.length(); i++) { org.json.JSONObject m = models.optJSONObject(i); if (m != null && (m.optString("provider") + "/" + m.optString("id")).equals(configuration.optString("model"))) selected = m; }
         if (selected == null) { openModelSettings(); return; }
         if (effortPopup != null) effortPopup.dismiss();
         effortPopup = new ru.billyhargrove.pimobile.ui.EffortPopup(anchor, selected, configuration.optString("thinkingLevel", "off"), !readOnly, this::openModelSettings, value -> {
-            if (configurationRequest != null) { toast("Предыдущее изменение ещё подтверждается"); return; }
+            if (configurationRequest != null) { toast("Waiting for the previous change to be confirmed"); return; }
             configurationRequest = client.configure(sessionId, null, null, value);
-            if (configurationRequest == null) toast("Нет соединения с Pi. Изменение не отправлено");
+            if (configurationRequest == null) toast("Pi is disconnected. Change not sent");
         });
     }
 
@@ -283,20 +281,22 @@ public final class ChatActivity extends AppCompatActivity
         if (configurationRequest != null) return;
         if (effortPopup != null) effortPopup.dismiss();
         if(configuration == null || configuration.optJSONArray("models") == null) {
-            toast("Выполни /reload в этом Pi, когда он освободится, чтобы загрузить модели и effort.");return;
+            toast("Run /reload in Pi when idle to load models and effort levels.");return;
         }
         if(modelSheet != null)modelSheet.dismiss();
         ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(composerInput.getWindowToken(),0);
         modelSheet=new ru.billyhargrove.pimobile.ui.ModelSettingsSheet(this,configuration,client.state()==ConnectionState.CONNECTED && sessionStatus==SessionStatus.IDLE && !readOnly,(provider,model,effort)->{
-            if(sessionStatus!=SessionStatus.IDLE){modelSheet.failed("Дождись завершения задачи");return;}
+            if(sessionStatus!=SessionStatus.IDLE){modelSheet.failed("Wait for the current task to finish");return;}
             configurationRequest=client.configure(sessionId,provider,model,effort);
-            if(configurationRequest==null)modelSheet.failed("Нет соединения с Pi. Изменения не отправлены.");
+            if(configurationRequest==null)modelSheet.failed("Pi is disconnected. Changes not sent.");
         });
         modelSheet.show();
     }
 
+    private boolean cachedView;
     @Override public void onTimelineMeta(org.json.JSONObject frame){
         if(!sessionId.equals(frame.optString("sessionId")))return;
+        cachedView=frame.optBoolean("cached");
         adapter.metadata(frame);
         ((ru.billyhargrove.pimobile.ui.WorkingBadge)findViewById(R.id.workingBadge)).update(frame);
         if("snapshot".equals(frame.optString("type"))){
@@ -304,21 +304,21 @@ public final class ChatActivity extends AppCompatActivity
             org.json.JSONObject h=frame.optJSONObject("history");hasMoreHistory=h!=null&&h.optBoolean("hasMore");beforeCursor=h==null?"":h.optString("before","");historyButton();
         }
     }
-    private void historyButton(){ /* Pagination is scroll-driven, without a separate row. */ }
+    private void historyButton(){if(loadingUi!=null)loadingUi.history(historyRequest!=null);}
     private void ensureUserContext(){
         // A long tool run can evict ALL user messages from the 40-source-message tail.
         // Fetch preceding pages until the current prompt is present; never move the viewport up.
         if(hasMoreHistory && store.transcript().stream().noneMatch(m->m.role()==ChatMessage.Role.USER))loadOlder();
     }
-    private void loadOlder(){if(!hasMoreHistory||historyRequest!=null||beforeCursor.isEmpty())return;try{historyRequest=client.readCommand(sessionId,"history",new org.json.JSONObject().put("before",beforeCursor).put("limit",40));historyButton();if(historyRequest==null)toast("Для загрузки истории нужен подключённый Pi");}catch(org.json.JSONException ignored){}}
+    private void loadOlder(){if(!hasMoreHistory||historyRequest!=null||beforeCursor.isEmpty())return;try{historyRequest=client.readCommand(sessionId,"history",new org.json.JSONObject().put("before",beforeCursor).put("limit",40));historyButton();if(historyRequest==null)toast("Pi must be connected to load history");}catch(org.json.JSONException ignored){}}
     @Override public void onData(String request,String id,org.json.JSONObject data){
         if(!sessionId.equals(id))return;
         if("mcp".equals(data.optString("type"))&&request.equals(controlRequest)){
             org.json.JSONArray servers=data.optJSONArray("servers");StringBuilder text=new StringBuilder();
-            if(servers!=null)for(int i=0;i<servers.length();i++){org.json.JSONObject s=servers.optJSONObject(i);if(s==null)continue;String status=s.optString("status");String label="connected".equals(status)?"подключён":"cached".equals(status)?"кэш, не подключён":"not-connected".equals(status)?"не подключён":"needs-auth".equals(status)?"нужен вход":"disabled".equals(status)?"отключён":"blocked".equals(status)?"заблокирован":"ошибка";text.append(s.optString("name")).append(" — ").append(label).append(" · ").append(s.optInt("toolCount")).append(" инструментов\n\n");}
-            if(text.length()==0)text.append("Нет MCP-серверов в текущем Pi.");
-            long observed=data.optLong("observedAt");if(observed>0)text.append("Состояние сообщено Pi: ").append(android.text.format.DateFormat.getTimeFormat(this).format(new java.util.Date(observed)));
-            new com.google.android.material.dialog.MaterialAlertDialogBuilder(this).setTitle("MCP текущего Pi").setMessage(text.toString()).setPositiveButton("Готово",null).show();return;
+            if(servers!=null)for(int i=0;i<servers.length();i++){org.json.JSONObject s=servers.optJSONObject(i);if(s==null)continue;String status=s.optString("status");String label="connected".equals(status)?"connected":"cached".equals(status)?"cached, disconnected":"not-connected".equals(status)?"not connected":"needs-auth".equals(status)?"sign-in required":"disabled".equals(status)?"disabled":"blocked".equals(status)?"blocked":"error";text.append(s.optString("name")).append(" — ").append(label).append(" · ").append(s.optInt("toolCount")).append(" tools\n\n");}
+            if(text.length()==0)text.append("No MCP servers in this Pi session.");
+            long observed=data.optLong("observedAt");if(observed>0)text.append("Status reported by Pi: ").append(android.text.format.DateFormat.getTimeFormat(this).format(new java.util.Date(observed)));
+            new com.google.android.material.dialog.MaterialAlertDialogBuilder(this).setTitle("Session MCP servers").setMessage(text.toString()).setPositiveButton("Done",null).show();return;
         }
         if("history".equals(data.optString("type"))&&request.equals(historyRequest)){
             if(data.optLong("epoch")!=historyEpoch){historyRequest=null;historyButton();return;}
@@ -333,45 +333,46 @@ public final class ChatActivity extends AppCompatActivity
     }
     @Override public void onDocument(String raw){
         android.net.Uri uri=android.net.Uri.parse(raw);String scheme=uri.getScheme();
-        if("https".equalsIgnoreCase(scheme)||"http".equalsIgnoreCase(scheme)){try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(Exception e){toast("Нет приложения для этой ссылки");}return;}
-        if(scheme!=null&&!"file".equalsIgnoreCase(scheme)){toast("Этот тип ссылки не поддерживается");return;}
+        if("https".equalsIgnoreCase(scheme)||"http".equalsIgnoreCase(scheme)){try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(Exception e){toast("No app available to open this link");}return;}
+        if(scheme!=null&&!"file".equalsIgnoreCase(scheme)){toast("This link type is not supported");return;}
         String path=scheme==null?raw:uri.getPath();if(path==null)return;int hash=path.indexOf('#');if(hash>=0)path=path.substring(0,hash);path=android.net.Uri.decode(path);
-        if(!path.toLowerCase(java.util.Locale.ROOT).matches(".*\\.(md|markdown)$")){toast("Предпросмотр поддерживает .md и .markdown");return;}
-        if(documentRequest!=null){toast("Файл уже загружается");return;}
-        try{documentRequest=client.readCommand(sessionId,"document",new org.json.JSONObject().put("path",path));if(documentRequest==null)toast("Для предпросмотра нужен подключённый Pi");}catch(org.json.JSONException ignored){}
+        if(!path.toLowerCase(java.util.Locale.ROOT).matches(".*\\.(md|markdown)$")){toast("Preview supports .md and .markdown files");return;}
+        if(documentRequest!=null){toast("A file is already loading");return;}
+        try{documentRequest=client.readCommand(sessionId,"document",new org.json.JSONObject().put("path",path));if(documentRequest==null)toast("Pi must be connected to preview files");}catch(org.json.JSONException ignored){}
     }
 
-    private void updateDeliveryIcon(){MaterialButton button=findViewById(R.id.deliveryButton);boolean steer=settings.behavior()==CommandBuilder.Behavior.STEER;button.setIconResource(steer?R.drawable.ic_steer:R.drawable.ic_queue);button.setContentDescription(steer?"Режим отправки: Steer, вмешаться":"Режим отправки: Queue, в очередь");}
+    private void updateDeliveryIcon(){MaterialButton button=findViewById(R.id.deliveryButton);boolean steer=settings.behavior()==CommandBuilder.Behavior.STEER;button.setIconResource(steer?R.drawable.ic_steer:R.drawable.ic_queue);button.setContentDescription(steer?"Delivery: Steer":"Delivery: Queue");}
     private boolean hasCapability(String name){org.json.JSONArray caps=configuration==null?null:configuration.optJSONArray("capabilities");if(caps!=null)for(int i=0;i<caps.length();i++)if(name.equals(caps.optString(i)))return true;return false;}
     private boolean handleControl(String text){
         String kind=text.equals("/mcp")?"mcp":text.equals("/name")||text.startsWith("/name ")?"name":null;
         if(kind==null)return false;
-        if(!attachments.isEmpty()){toast("Команда не отправляет вложения — сначала убери их");return true;}
-        if(controlRequest!=null){toast("Предыдущая команда ещё выполняется");return true;}
-        if(!hasCapability(kind)){toast("Обнови мост в текущем Pi после завершения задачи");return true;}
-        try{org.json.JSONObject args=new org.json.JSONObject();if("name".equals(kind)){String name=text.substring(5).trim();if(name.isEmpty()){toast("Напиши /name Новое имя");return true;}args.put("name",name);}
-            controlRequest=client.readCommand(sessionId,kind,args);if(controlRequest==null)toast("Нет подключения к текущему Pi");else{controlKind=kind;controlDraft=text;}
+        if(!attachments.isEmpty()){toast("This command does not send attachments. Remove them first");return true;}
+        if(controlRequest!=null){toast("The previous command is still pending");return true;}
+        if(!hasCapability(kind)){toast("Update the Pi bridge after the current task finishes");return true;}
+        try{org.json.JSONObject args=new org.json.JSONObject();if("name".equals(kind)){String name=text.substring(5).trim();if(name.isEmpty()){toast("Use /name New name");return true;}args.put("name",name);}
+            controlRequest=client.readCommand(sessionId,kind,args);if(controlRequest==null)toast("Not connected to this Pi session");else{controlKind=kind;controlDraft=text;}
         }catch(org.json.JSONException ignored){}return true;
     }
 
     // -------------------------------------------------------------- commands
 
-    private void updateSendIcon(){if(sendButton==null)return;boolean voice=composerInput.getText().toString().trim().isEmpty()&&attachments.isEmpty();((com.google.android.material.button.MaterialButton)sendButton).setIconResource(voice?R.drawable.ic_mic:R.drawable.ic_send);sendButton.setContentDescription(transcribing?"Распознавание речи…":voice?"Диктовка":"Отправить");}
-    private void requestDictation(){if(transcribing){toast("Предыдущая запись ещё распознаётся");return;}if(androidx.core.content.ContextCompat.checkSelfPermission(this,android.Manifest.permission.RECORD_AUDIO)!=android.content.pm.PackageManager.PERMISSION_GRANTED)microphonePermission.launch(android.Manifest.permission.RECORD_AUDIO);else startDictation();}
+    private void updateSendIcon(){if(sendButton==null)return;boolean voice=composerInput.getText().toString().trim().isEmpty()&&attachments.isEmpty();((com.google.android.material.button.MaterialButton)sendButton).setIconResource(voice?R.drawable.ic_mic:R.drawable.ic_send);sendButton.setContentDescription(transcribing?"Transcribing…":voice?"Dictation":"Send");}
+    private void requestDictation(){if(transcribing){toast("The previous recording is still being transcribed");return;}if(androidx.core.content.ContextCompat.checkSelfPermission(this,android.Manifest.permission.RECORD_AUDIO)!=android.content.pm.PackageManager.PERMISSION_GRANTED)microphonePermission.launch(android.Manifest.permission.RECORD_AUDIO);else startDictation();}
     private void startDictation(){
         if(isFinishing()||isDestroyed())return;
-        dictation=new ru.billyhargrove.pimobile.ui.DictationRecorder(this,bytes->{dictation=null;transcribing=true;updateSendIcon();toast("Распознаю на компьютере…");String url=settings.baseUrl(),token=settings.token();
-            AppExecutors.io().execute(()->{String text=null,error=null;try{text=app.api().transcribe(url,token,bytes);}catch(Exception e){error=e.getMessage();}String result=text,failure=error;AppExecutors.main(()->{transcribing=false;if(isFinishing()||isDestroyed())return;updateSendIcon();if(failure!=null){toast(failure);return;}if(result==null||result.isBlank()){toast("Речь не распознана");return;}int at=Math.max(0,composerInput.getSelectionStart());composerInput.getText().insert(at,(at>0?" ":"")+result);});});
+        dictation=new ru.billyhargrove.pimobile.ui.DictationRecorder(this,bytes->{dictation=null;transcribing=true;updateSendIcon();toast("Transcribing on your computer…");String url=settings.baseUrl(),token=settings.token();
+            AppExecutors.io().execute(()->{String text=null,error=null;try{text=app.api().transcribe(url,token,bytes);}catch(Exception e){error=e.getMessage();}String result=text,failure=error;AppExecutors.main(()->{transcribing=false;if(isFinishing()||isDestroyed())return;updateSendIcon();if(failure!=null){toast(failure);return;}if(result==null||result.isBlank()){toast("No speech detected");return;}int at=Math.max(0,composerInput.getSelectionStart());composerInput.getText().insert(at,(at>0?" ":"")+result);});});
         },this::toast);
     }
 
     private void onSendClicked() {
+        if(preparingAttachments){toast("Wait for attachments to finish preparing");return;}
         if (readOnly) {
             return;
         }
         String text = composerInput.getText().toString();
         if(handleControl(text.trim()))return;
-        if(text.startsWith("$")&&!hasCapability("skills")){toast("Для навыков нужно обновить мост в этом Pi, когда он освободится");return;}
+        if(text.startsWith("$")&&!hasCapability("skills")){toast("Update the Pi bridge when idle to use skills");return;}
         List<ImagePayload> payloads = new ArrayList<>();
         List<Bitmap> thumbs = new ArrayList<>();
         List<String> mimeTypes = new ArrayList<>();
@@ -418,7 +419,7 @@ public final class ChatActivity extends AppCompatActivity
     public void onRetry(ChatMessage message) {
         Draft draft = drafts.get(message.requestId());
         if (draft == null) {
-            toast("Восстанови текст в поле ввода; вложения после повторного входа нужно выбрать заново. Перед повтором проверь, не принят ли запрос.");return;
+            toast("Restore the draft and reattach files. Check whether Pi already accepted the message before retrying.");return;
         }
         toast(getString(R.string.retry_warning));
         String requestId = client.sendPrompt(sessionId, draft.text, draft.payloads, draft.behavior);
@@ -437,7 +438,7 @@ public final class ChatActivity extends AppCompatActivity
     public void onRestore(ChatMessage message) {
         Draft draft = drafts.remove(message.requestId());
         if (draft == null) {
-            if(composerInput.getText().length()==0)composerInput.setText(message.text());else{toast("Сначала освободи поле ввода");return;}localMessages.remove(message);render();toast("Перед повтором проверь чат. Вложения нужно выбрать заново.");return;
+            if(composerInput.getText().length()==0)composerInput.setText(message.text());else{toast("Clear the current draft first");return;}localMessages.remove(message);render();toast("Check the chat before retrying. Select attachments again.");return;
         }
         if (composerInput.getText().length() == 0) {
             composerInput.setText(draft.text);
@@ -447,7 +448,7 @@ public final class ChatActivity extends AppCompatActivity
             attachments.clear();
             for (int i = 0; i < draft.payloads.size(); i++) {
                 Bitmap thumb = i < draft.thumbs.size() ? draft.thumbs.get(i) : null;
-                attachments.add(new Attachment(draft.payloads.get(i), thumb, "восстановлено"));
+                attachments.add(new Attachment(draft.payloads.get(i), thumb, "restored"));
             }
             renderAttachments();
         }
@@ -472,11 +473,14 @@ public final class ChatActivity extends AppCompatActivity
         if (uris.size() > free) {
             toast(getString(R.string.error_attach_limit));
         }
+        if(preparingAttachments)return;
         final List<Uri> selected = new ArrayList<>(uris.subList(0, Math.min(free, uris.size())));
+        preparingAttachments=true;updateStatusUi();attachmentsTitle.setText("Preparing "+selected.size()+" attachment(s)…");attachmentsTitle.setVisibility(View.VISIBLE);
+        final long remainingBudget=ImageGuard.remainingBytes(payloadsOf(attachments));
         AppExecutors.io().execute(() -> {
             List<Attachment> staged = new ArrayList<>();
             String error = null;
-            long budget = ImageGuard.remainingBytes(payloadsOf(attachments));
+            long budget = remainingBudget;
             for (Uri uri : selected) {
                 try {
                     ImagePayload payload = ru.billyhargrove.pimobile.net.AttachmentPreparer.prepare(getContentResolver(), uri, budget);
@@ -484,13 +488,14 @@ public final class ChatActivity extends AppCompatActivity
                     Bitmap thumb = payload.isFile()?null:ImagePreparer.thumbnail(payload.bytes(), 320);
                     staged.add(new Attachment(payload, thumb, ImagePreparer.displayName(getContentResolver(), uri)));
                 } catch (Exception e) {
-                    error = e.getMessage() == null ? "не удалось прочитать файл" : e.getMessage();
+                    error = e.getMessage() == null ? "could not read file" : e.getMessage();
                     break;
                 }
             }
             final List<Attachment> stagedFinal = staged;
             final String failure = error;
             AppExecutors.main(() -> {
+                preparingAttachments=false;if(isDestroyed())return;updateStatusUi();
                 attachments.addAll(stagedFinal);
                 renderAttachments();
                 if (failure != null) {
@@ -522,7 +527,7 @@ public final class ChatActivity extends AppCompatActivity
             final int index = i;
             Attachment attachment = attachments.get(i);
             com.google.android.material.chip.Chip item=new com.google.android.material.chip.Chip(this);
-            item.setText(attachment.payload().isFile()?"📎 "+attachment.payload().fileName():"Изображение "+(index+1));item.setEnsureMinTouchTargetSize(true);item.setCloseIconVisible(true);item.setCloseIconContentDescription(getString(R.string.cd_attachment_remove,index+1));item.setMaxWidth(Math.round(260*getResources().getDisplayMetrics().density));item.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            item.setText(attachment.payload().isFile()?"📎 "+attachment.payload().fileName():"Image "+(index+1));item.setEnsureMinTouchTargetSize(true);item.setCloseIconVisible(true);item.setCloseIconContentDescription(getString(R.string.cd_attachment_remove,index+1));item.setMaxWidth(Math.round(260*getResources().getDisplayMetrics().density));item.setEllipsize(android.text.TextUtils.TruncateAt.END);
             item.setOnCloseIconClickListener(v -> {
                 if (index < attachments.size()) {
                     attachments.remove(index);
@@ -567,7 +572,10 @@ public final class ChatActivity extends AppCompatActivity
         if (!sessionId.equals(snapshot.sessionId())) {
             return;
         }
+        org.json.JSONObject viewport=cachedView?client.cachedViewport(sessionId):null;
+        if(viewport!=null){firstRenderDone=true;followTail=false;scrollGeneration++;}
         applySnapshot(snapshot);
+        if(viewport!=null){boolean follow=viewport.optBoolean("follow");String anchor=viewport.optString("anchor");int offset=viewport.optInt("offset");messageList.post(()->{int position=adapter.positionOf(anchor);if(position>=0)((LinearLayoutManager)messageList.getLayoutManager()).scrollToPositionWithOffset(position,offset);followTail=follow;});}
     }
 
     /**
@@ -587,18 +595,19 @@ public final class ChatActivity extends AppCompatActivity
         }
         // `connected` is advisory here: the badge follows `status`, which the
         // protocol defines as the authoritative activity indicator.
+        loadingUi.loaded();adapter.sessionStatus(sessionStatus);
         render(store.apply(update.messages(), update.removedIds()));
-        updateStatusUi();
+        ensureUserContext();updateStatusUi();
     }
 
     @Override
     public void onAck(Ack ack) {
-        if(ack.requestId().equals(controlRequest)){controlRequest=null;if(ack.ok()){if(composerInput.getText().toString().trim().equals(controlDraft))composerInput.setText("");if("name".equals(controlKind))toast("Имя сессии изменено");}else toast(errorText(ack));controlDraft=null;return;}
+        if(ack.requestId().equals(controlRequest)){controlRequest=null;if(ack.ok()){if(composerInput.getText().toString().trim().equals(controlDraft))composerInput.setText("");if("name".equals(controlKind))toast("Session renamed");}else toast(errorText(ack));controlDraft=null;return;}
         if(ack.requestId().equals(historyRequest)){historyRequest=null;historyButton();if(!ack.ok())toast(errorText(ack));else ensureUserContext();return;}
         if(ack.requestId().equals(documentRequest)){documentRequest=null;if(!ack.ok())toast(errorText(ack));return;}
         if (ack.requestId().equals(configurationRequest)) {
             configurationRequest=null;
-            if(ack.ok()){if(modelSheet!=null)modelSheet.dismiss();toast("Настройки текущего Pi изменены");}
+            if(ack.ok()){if(modelSheet!=null)modelSheet.dismiss();toast("Session settings updated");}
             else if(modelSheet!=null && modelSheet.isShowing())modelSheet.failed(errorText(ack));
             else toast(errorText(ack));
             return;
@@ -630,13 +639,13 @@ public final class ChatActivity extends AppCompatActivity
 
     @Override
     public void onCommandUncertain(String requestId, String sessionId, String reason) {
-        if(requestId.equals(controlRequest)){controlRequest=null;toast("Результат команды неизвестен: "+reason);return;}
-        if(requestId.equals(historyRequest)){historyRequest=null;historyButton();toast("История не загружена: "+reason);return;}
-        if(requestId.equals(documentRequest)){documentRequest=null;toast("Файл не загружен: "+reason);return;}
+        if(requestId.equals(controlRequest)){controlRequest=null;toast("Command result unknown: "+reason);return;}
+        if(requestId.equals(historyRequest)){historyRequest=null;historyButton();toast("History could not be loaded: "+reason);return;}
+        if(requestId.equals(documentRequest)){documentRequest=null;toast("File could not be loaded: "+reason);return;}
         if(requestId.equals(configurationRequest)) {
             configurationRequest=null;
-            if(modelSheet!=null && modelSheet.isShowing())modelSheet.failed("Результат неизвестен. Проверь модель в терминале перед повтором.");
-            else toast("Результат изменения effort неизвестен. Проверь Pi перед повтором.");
+            if(modelSheet!=null && modelSheet.isShowing())modelSheet.failed("Result unknown. Check the model in the terminal before retrying.");
+            else toast("Effort change result unknown. Check Pi before retrying.");
             return;
         }
         if (abortRequests.remove(requestId)) {
@@ -671,10 +680,11 @@ public final class ChatActivity extends AppCompatActivity
     // ----------------------------------------------------------------- helpers
 
     private void applySnapshot(Snapshot snapshot) {
-        sessionStatus = snapshot.status();
+        loadingUi.loaded();
+        sessionStatus = snapshot.status();adapter.sessionStatus(sessionStatus);
         truncatedBanner.setVisibility(snapshot.truncated() ? View.VISIBLE : View.GONE);
         render(store.replaceAll(snapshot.messages()));
-        ensureUserContext();
+        if(!cachedView)ensureUserContext();
         updateStatusUi();
     }
 
@@ -709,7 +719,7 @@ public final class ChatActivity extends AppCompatActivity
         localMessages.removeIf(m->m.localState()!=ChatMessage.LocalState.SENDING&&!visibleLocal.contains(m.requestId()));
         if(pendingMessages!=null)pendingMessages.save(localMessages);
         adapter.submit(merged);
-        chatEmptyText.setVisibility(adapter.size() == 0 ? View.VISIBLE : View.GONE);
+        chatEmptyText.setVisibility(adapter.size() == 0 && (loadingUi==null||!loadingUi.isLoading()) ? View.VISIBLE : View.GONE);
         pruneDrafts();
     }
 
@@ -742,15 +752,16 @@ public final class ChatActivity extends AppCompatActivity
         boolean connected = client.state() == ConnectionState.CONNECTED;
         String model = configuration == null ? "" : configuration.optString("model", "");
         if(model.contains("/"))model=model.substring(model.lastIndexOf('/')+1);
-        String detail=model.isEmpty()?"На связи":model+" · "+configuration.optString("thinkingLevel","off");
-        chatStatusText.setText(!connected ? StatusUi.connectionLabel(this, client.state()) : sessionStatus == SessionStatus.OFFLINE ? "Pi отключён · история доступна" : sessionStatus==SessionStatus.RUNNING?"Работает":"Подключено");
-        findViewById(R.id.effortButton).setContentDescription("Effort: " + (configuration==null?"неизвестен":ru.billyhargrove.pimobile.ui.EffortSlider.label(configuration.optString("thinkingLevel","off"))));
+        String detail=model.isEmpty()?"Online":model+" · "+configuration.optString("thinkingLevel","off");
+        chatStatusText.setText(cachedView ? "Cached · syncing" : !connected ? StatusUi.connectionLabel(this, client.state()) : sessionStatus == SessionStatus.OFFLINE ? "Pi disconnected · history available" : sessionStatus==SessionStatus.RUNNING?"Working":"Connected");
+        findViewById(R.id.effortButton).setContentDescription("Effort: " + (configuration==null?"unknown":ru.billyhargrove.pimobile.ui.EffortSlider.label(configuration.optString("thinkingLevel","off"))));
         chatConnectionDot.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 StatusUi.sessionDotColor(this, sessionStatus, connected && sessionStatus != SessionStatus.OFFLINE)));
         boolean online = client.state() == ConnectionState.CONNECTED && sessionStatus != SessionStatus.OFFLINE && !readOnly;
         stopButton.setVisibility(sessionStatus == SessionStatus.RUNNING ? View.VISIBLE : View.GONE);
         stopButton.setEnabled(online);
-        sendButton.setEnabled(online);
+        sendButton.setEnabled(online&&!preparingAttachments);
+        attachButton.setEnabled(!readOnly&&!preparingAttachments);
     }
 
     private int indexOfLocal(String requestId) {
@@ -804,7 +815,7 @@ public final class ChatActivity extends AppCompatActivity
 
     private static String errorText(Ack ack) {
         if (ack == null || ack.error() == null || ack.error().isEmpty()) {
-            return "без подробностей";
+            return "no details";
         }
         return ack.error();
     }

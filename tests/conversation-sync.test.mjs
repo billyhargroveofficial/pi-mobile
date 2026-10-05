@@ -1,0 +1,8 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';
+import {checkpoint,resumeDelta} from '../server/conversation-sync.mjs';
+const row=(id,text=id)=>({id,role:'assistant',text});
+function snapshot(messages,stream='server:session',epoch=1){return {type:'snapshot',sessionId:'session',messages,checkpoint:checkpoint(stream,epoch,messages)};}
+test('returning unchanged conversation transfers no message bodies',()=>{const s=snapshot([row('a'),row('b')]);const delta=resumeDelta(s,s.checkpoint);assert.deepEqual(delta.messages,[]);assert.deepEqual(delta.removedIds,[]);assert.equal(delta.resumed,true);});
+test('resume includes new, edited and removed messages with authoritative order',()=>{const old=snapshot([row('a'),row('b'),row('c')]);const current=snapshot([row('a','updated'),row('c'),row('d')]);const delta=resumeDelta(current,old.checkpoint);assert.deepEqual(delta.messages,[row('a','updated'),row('d')]);assert.deepEqual(delta.removedIds,['b']);assert.deepEqual(delta.order,['a','c','d']);});
+test('restart, session change or history epoch invalidates checkpoint',()=>{const old=snapshot([row('a')]);assert.equal(resumeDelta(snapshot([row('a')],'new-server:session'),old.checkpoint),null);assert.equal(resumeDelta(snapshot([row('a')],'server:other'),old.checkpoint),null);assert.equal(resumeDelta(snapshot([row('a')],'server:session',2),old.checkpoint),null);});
+test('malformed and oversized checkpoints fall back safely',()=>{const s=snapshot([row('a')]);for(const resume of [null,{}, {...s.checkpoint,rows:Array(401).fill(['a','a'.repeat(64)])},{...s.checkpoint,rows:[['a','invalid']]},{...s.checkpoint,rows:[...s.checkpoint.rows,...s.checkpoint.rows]}])assert.equal(resumeDelta(s,resume),null);});

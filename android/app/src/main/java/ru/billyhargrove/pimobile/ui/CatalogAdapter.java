@@ -109,7 +109,7 @@ public final class CatalogAdapter extends RecyclerView.Adapter<CatalogAdapter.Ho
             count.setText(String.valueOf(row.count()));
             view.setOnClickListener(null);
             view.setClickable(false);
-            View add=view.findViewById(R.id.newSessionButton);add.setVisibility(row.key().startsWith("ws:")?View.VISIBLE:View.GONE);add.setContentDescription("Новая сессия: "+row.title());add.setOnClickListener(v->listener.onNewSession(row.key().substring(3),row.title()));
+            View add=view.findViewById(R.id.newSessionButton);add.setVisibility(row.key().startsWith("ws:")?View.VISIBLE:View.GONE);add.setContentDescription("New session: "+row.title());add.setOnClickListener(v->listener.onNewSession(row.key().substring(3),row.title()));
             view.setContentDescription(row.title());
             return;
         }

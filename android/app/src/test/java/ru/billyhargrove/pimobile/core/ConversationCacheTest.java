@@ -1,0 +1,10 @@
+package ru.billyhargrove.pimobile.core;
+import org.junit.Test;import org.junit.Rule;import org.junit.rules.TemporaryFolder;import static org.junit.Assert.*;import org.json.*;import java.io.*;import java.nio.file.*;
+import ru.billyhargrove.pimobile.store.ConversationCache;
+public class ConversationCacheTest {
+ @Rule public TemporaryFolder temp=new TemporaryFolder();
+ @Test public void scopeIncludesServerTokenAndSession(){String key=ConversationCache.key("https://one","secret","a");assertEquals(64,key.length());assertNotEquals(key,ConversationCache.key("https://two","secret","a"));assertNotEquals(key,ConversationCache.key("https://one","other","a"));assertNotEquals(key,ConversationCache.key("https://one","secret","b"));assertFalse(key.contains("secret"));}
+ @Test public void persistsPrivateSnapshotAndViewportAcrossInstances()throws Exception{File dir=temp.newFolder();ConversationCache cache=new ConversationCache(dir);String key=ConversationCache.key("server","token","a");JSONObject data=new JSONObject().put("type","snapshot").put("messages",new JSONArray()).put("viewport",new JSONObject().put("anchor","message"));cache.write(key,data.toString());assertEquals("message",new ConversationCache(dir).read(key).getJSONObject("viewport").getString("anchor"));}
+ @Test public void corruptionIsDiscardedAndRetentionIsBounded()throws Exception{File dir=temp.newFolder();ConversationCache cache=new ConversationCache(dir);String key=ConversationCache.key("s","t","broken");Files.write(new File(dir,key+".json").toPath(),"bad JSON".getBytes(java.nio.charset.StandardCharsets.UTF_8));assertNull(cache.read(key));for(int i=0;i<12;i++)cache.write(ConversationCache.key("s","t",""+i),"{\"type\":\"snapshot\",\"messages\":[]}");assertTrue(dir.listFiles().length<=8);}
+ @Test public void expiredSnapshotIsNotRestored()throws Exception{File dir=temp.newFolder();ConversationCache cache=new ConversationCache(dir);String key=ConversationCache.key("s","t","a");cache.write(key,"{\"type\":\"snapshot\",\"messages\":[]}");new File(dir,key+".json").setLastModified(System.currentTimeMillis()-8L*24*60*60*1000);assertNull(cache.read(key));}
+}

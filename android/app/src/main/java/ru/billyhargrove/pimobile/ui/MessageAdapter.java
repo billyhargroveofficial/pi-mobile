@@ -12,7 +12,7 @@ import ru.billyhargrove.pimobile.R;
 import ru.billyhargrove.pimobile.core.*;
 import ru.billyhargrove.pimobile.net.MediaLoader;
 
-/** Ordered progress bubbles and tool segments; each independently expandable after settlement. */
+/** Plain assistant progress messages and independently expandable tool segments. */
 public final class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.Holder> {
  public interface LocalThumbProvider { Bitmap thumbnail(String requestId,int index); }
  public interface Listener {void onRetry(ChatMessage message);void onRestore(ChatMessage message);default void onDocument(String path){} }
@@ -21,16 +21,19 @@ public final class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.Ho
  private final MediaLoader loader;private final LocalThumbProvider thumbs;private final Listener listener;
  private final List<ChatMessage> messages=new ArrayList<>();private List<WorkTimeline.Row> rows=new ArrayList<>();
  private final Set<String> collapsed=new HashSet<>(),completed=new HashSet<>(),settledGroups=new HashSet<>();
- private String activeTurn="";
+ private String activeTurn="";private boolean idleKnown;
+ private final Set<String> animatedGroups=new HashSet<>();
  private Map<String,List<ChatMessage>> bodies=new HashMap<>();
  private MarkdownRenderer markdown;
  public MessageAdapter(MediaLoader loader,LocalThumbProvider thumbs,Listener listener){this.loader=loader;this.thumbs=thumbs;this.listener=listener;}
  public void close(){if(markdown!=null)markdown.close();}
  public void metadata(JSONObject frame){
   if(frame.has("activeTurnId"))activeTurn=frame.optString("activeTurnId");
+  if(frame.has("status"))idleKnown="idle".equals(frame.optString("status"))||"offline".equals(frame.optString("status"));
   JSONArray turns=frame.optJSONArray("turns");if(turns!=null)for(int i=0;i<turns.length();i++){JSONObject t=turns.optJSONObject(i);if(t!=null&&t.optLong("finishedAt")>0)completed.add(t.optString("id"));}
   rebuild();
  }
+ public void sessionStatus(SessionStatus status){idleKnown=status==SessionStatus.IDLE||status==SessionStatus.OFFLINE;rebuild();}
  public int size(){return rows.size();}
  public String keyAt(int pos){return pos>=0&&pos<rows.size()?rows.get(pos).key:"";}
  public int positionOf(String key){for(int i=0;i<rows.size();i++)if(rows.get(i).key.equals(key))return i;return -1;}
@@ -38,14 +41,14 @@ public final class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.Ho
  private void rebuild(){
   List<WorkTimeline.Row> old=rows,next=new ArrayList<>();Map<String,List<ChatMessage>> oldBodies=bodies,nextBodies=new HashMap<>();
   for(ChatMessage m:messages)if(m.role()==ChatMessage.Role.ASSISTANT&&!"work".equals(m.phase())&&!m.turnId().equals(activeTurn))completed.add(m.turnId());
-  for(WorkTimeline.Row row:WorkTimeline.build(messages,Collections.emptySet()))if((row.header||row.progress)&&completed.contains(row.turn)&&settledGroups.add(row.group))collapsed.add(row.group);
+  for(WorkTimeline.Row row:WorkTimeline.build(messages,Collections.emptySet()))if(row.header&&(idleKnown||completed.contains(row.turn))&&settledGroups.add(row.group)){collapsed.add(row.group);if(!old.isEmpty())animatedGroups.add(row.group);}
   for(WorkTimeline.Row row:WorkTimeline.build(messages,collapsed)){if(row.work()&&!row.header&&!row.progress){nextBodies.computeIfAbsent(row.group,key->new ArrayList<>()).add(row.message);}else next.add(row);}
   DiffUtil.DiffResult diff=DiffUtil.calculateDiff(new DiffUtil.Callback(){public int getOldListSize(){return old.size();}public int getNewListSize(){return next.size();}public boolean areItemsTheSame(int a,int b){return old.get(a).key.equals(next.get(b).key);}public boolean areContentsTheSame(int a,int b){WorkTimeline.Row x=old.get(a),y=next.get(b);return x.last==y.last&&x.count==y.count&&Objects.equals(x.message,y.message)&&Objects.equals(oldBodies.get(x.group),nextBodies.get(y.group));}});
   bodies=nextBodies;rows=next;diff.dispatchUpdatesTo(this);
  }
- @Override public int getItemViewType(int position){return rows.get(position).header?1:rows.get(position).progress?2:0;}
+ @Override public int getItemViewType(int position){return rows.get(position).header?1:0;}
  static final class Holder extends RecyclerView.ViewHolder {
-  LinearLayout bubble,images,actions;TextView text,role,status;WorkSurface surface;TextView header;WorkLogView log;
+  String boundGroup="";LinearLayout bubble,images,actions;TextView text,role,status;WorkSurface surface;TextView header;WorkLogView log;
   Holder(View v){super(v);}
  }
  private int dp(android.content.Context c,int n){return Math.round(n*c.getResources().getDisplayMetrics().density);}
@@ -55,31 +58,31 @@ public final class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.Ho
   if(type==0){View v=LayoutInflater.from(c).inflate(R.layout.item_message,parent,false);Holder h=new Holder(v);h.bubble=v.findViewById(R.id.messageBubble);h.text=v.findViewById(R.id.messageText);h.role=v.findViewById(R.id.messageRoleLabel);h.images=v.findViewById(R.id.messageImages);h.status=v.findViewById(R.id.messageLocalStatus);h.actions=v.findViewById(R.id.messageLocalActions);v.findViewById(R.id.toolToggle).setVisibility(View.GONE);v.findViewById(R.id.messageToolName).setVisibility(View.GONE);return h;}
   FrameLayout root=new FrameLayout(c);root.setLayoutParams(new RecyclerView.LayoutParams(-1,-2));root.setPadding(dp(c,16),dp(c,4),dp(c,16),dp(c,4));Holder h=new Holder(root);h.surface=new WorkSurface(c);h.surface.setPadding(dp(c,12),0,dp(c,12),0);root.addView(h.surface,new FrameLayout.LayoutParams(-1,-2));
   h.header=text(c,12);h.header.setId(R.id.workHeader);h.header.setGravity(Gravity.CENTER_VERTICAL);h.header.setMinHeight(dp(c,44));h.header.setPadding(dp(c,2),0,dp(c,2),0);h.surface.addView(h.header,new LinearLayout.LayoutParams(-1,-2));
-  if(type==2){h.text=text(c,15);h.text.setPadding(0,0,0,dp(c,12));h.surface.addView(h.text,new LinearLayout.LayoutParams(-1,-2));}
-  else{h.log=new WorkLogView(c,markdown);h.surface.addView(h.log,new LinearLayout.LayoutParams(-1,-2));}return h;
+  h.log=new WorkLogView(c,markdown);h.surface.addView(h.log,new LinearLayout.LayoutParams(-1,-2));return h;
  }
  @Override public void onBindViewHolder(@NonNull Holder h,int position,@NonNull List<Object> payloads){onBindViewHolder(h,position);}
  @Override public void onBindViewHolder(@NonNull Holder h,int position){
   WorkTimeline.Row row=rows.get(position);android.content.Context c=h.itemView.getContext();
-  if(row.header||row.progress){
-   h.surface.shape(true,true,false);boolean open=!collapsed.contains(row.group);
-   if(row.progress){h.header.setText((open?"▾ ":"▸ ")+(open?"Ход работы":firstLine(row.message.text())));h.header.setMaxLines(1);h.header.setEllipsize(android.text.TextUtils.TruncateAt.END);h.header.setContentDescription(open?"Свернуть сообщение о ходе работы":"Развернуть сообщение о ходе работы");h.text.setVisibility(open?View.VISIBLE:View.GONE);if(open)markdown.render(h.text,row.message.text());}
-   else{header(h,row);h.log.setVisibility(open?View.VISIBLE:View.GONE);if(open)h.log.submit(row.group,bodies.get(row.group));}
-   h.header.setOnClickListener(v->{if(!collapsed.remove(row.group))collapsed.add(row.group);rebuild();});return;
+  if(row.header){
+   h.surface.shape(true,true,false);boolean open=!collapsed.contains(row.group);header(h,row);
+   boolean animate=animatedGroups.remove(row.group)&&row.group.equals(h.boundGroup);h.boundGroup=row.group;
+   if(open)h.log.submit(row.group,bodies.get(row.group));h.log.expanded(open,animate);
+   h.header.setOnClickListener(v->{if(!collapsed.remove(row.group))collapsed.add(row.group);animatedGroups.add(row.group);rebuild();});return;
   }
   ChatMessage m=row.message;
-  boolean user=m.role()==ChatMessage.Role.USER;LinearLayout.LayoutParams bp=(LinearLayout.LayoutParams)h.bubble.getLayoutParams();bp.gravity=user?Gravity.END:Gravity.START;h.bubble.setLayoutParams(bp);h.bubble.setBackgroundResource(user?R.drawable.bg_bubble_user:R.drawable.bg_bubble_assistant);
+  boolean user=m.role()==ChatMessage.Role.USER;LinearLayout.LayoutParams bp=(LinearLayout.LayoutParams)h.bubble.getLayoutParams();bp.gravity=user?Gravity.END:Gravity.START;h.bubble.setLayoutParams(bp);if(user)h.bubble.setBackground(BubbleColors.background(c,BubbleColors.color(c)));else h.bubble.setBackgroundResource(R.drawable.bg_bubble_assistant);h.text.setTextColor(user?BubbleColors.foreground(BubbleColors.color(c)):c.getColor(R.color.text_primary));
   h.role.setVisibility(View.GONE);
   LinearLayout.LayoutParams textParams=(LinearLayout.LayoutParams)h.text.getLayoutParams();textParams.topMargin=h.role.getVisibility()==View.VISIBLE?dp(c,6):0;h.text.setLayoutParams(textParams);
   h.text.setMaxWidth(Math.min(dp(c,560),c.getResources().getDisplayMetrics().widthPixels-dp(c,72)));h.text.setVisibility(m.text().isEmpty()?View.GONE:View.VISIBLE);
   if(user){h.text.setTag(R.id.markdownSource,null);h.text.setText(m.text());}else markdown.render(h.text,m.text());images(h.images,m);
-  boolean local=m.localState()!=ChatMessage.LocalState.NONE;boolean accepted=user&&(m.localState()==ChatMessage.LocalState.ACCEPTED||m.localState()==ChatMessage.LocalState.NONE);h.status.setVisibility(local||accepted?View.VISIBLE:View.GONE);h.status.setGravity(Gravity.END);h.status.setTextSize(11);if(accepted){h.status.setText("✓✓");h.status.setTextColor(c.getColor(R.color.success));h.status.setContentDescription("Принято Pi");}else if(local){h.status.setText(StatusUi.localStateLabel(c,m.localState()));h.status.setTextColor(StatusUi.localStateColor(c,m.localState()));h.status.setContentDescription(h.status.getText());}
+  boolean local=m.localState()!=ChatMessage.LocalState.NONE;boolean accepted=user&&(m.localState()==ChatMessage.LocalState.ACCEPTED||m.localState()==ChatMessage.LocalState.NONE);h.status.setVisibility(local||accepted?View.VISIBLE:View.GONE);h.status.setGravity(Gravity.END);h.status.setTextSize(11);if(accepted){h.status.setText("✓✓");h.status.setTextColor(BubbleColors.foreground(BubbleColors.color(c)));h.status.setContentDescription("Accepted by Pi");}else if(local){h.status.setText(StatusUi.localStateLabel(c,m.localState()));h.status.setTextColor(StatusUi.localStateColor(c,m.localState()));h.status.setContentDescription(h.status.getText());}
   boolean retry=m.localState()==ChatMessage.LocalState.FAILED||m.localState()==ChatMessage.LocalState.UNCERTAIN;h.actions.setVisibility(retry?View.VISIBLE:View.GONE);
   h.itemView.findViewById(R.id.messageRetryButton).setOnClickListener(v->{if(listener!=null)listener.onRetry(m);});h.itemView.findViewById(R.id.messageRestoreButton).setOnClickListener(v->{if(listener!=null)listener.onRestore(m);});
  }
  private void header(Holder h,WorkTimeline.Row row){
-  h.header.setText((collapsed.contains(row.group)?"▸ ":"▾ ")+"Действия · "+row.count);
-  h.header.setContentDescription(collapsed.contains(row.group)?"Развернуть действия":"Свернуть действия");
+  h.header.setText("Tools · "+row.count);
+  h.header.setContentDescription(collapsed.contains(row.group)?"Expand tools":"Collapse tools");
+  androidx.core.view.ViewCompat.setStateDescription(h.header,collapsed.contains(row.group)?"Collapsed":"Expanded");
  }
  private static String firstLine(String s){int n=s.indexOf('\n');return n<0?s:s.substring(0,n);}
  private void link(String link){if(listener!=null)listener.onDocument(link);}
@@ -89,7 +92,7 @@ public final class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.Ho
   container.setTag(key.toString());container.removeAllViews();container.setVisibility(m.images().isEmpty()?View.GONE:View.VISIBLE);android.content.Context c=container.getContext();
   for(int i=0;i<Math.min(3,m.images().size());i++){ImageRef ref=m.images().get(i);ImageView image=new ImageView(c);image.setScaleType(ImageView.ScaleType.FIT_CENTER);image.setBackgroundResource(R.drawable.bg_image_placeholder);image.setClipToOutline(true);image.setContentDescription(c.getString(R.string.cd_message_image,i+1));int width=Math.min(dp(c,480),c.getResources().getDisplayMetrics().widthPixels-dp(c,72));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(width,dp(c,170));p.bottomMargin=dp(c,8);container.addView(image,p);
    if(ref.url().startsWith(LOCAL_PREFIX)){int index=i;try{index=Integer.parseInt(ref.url().substring(LOCAL_PREFIX.length()));}catch(NumberFormatException ignored){}Bitmap b=thumbs==null?null:thumbs.thumbnail(m.requestId(),index);if(b!=null){image.setImageBitmap(b);image.setOnClickListener(v->ImageViewer.show(c,ref.url(),b));}}
-   else loader.load(ref.url(),new MediaLoader.Callback(){public void onLoaded(String url,Bitmap b){image.setImageBitmap(b);image.setOnClickListener(v->ImageViewer.show(c,ref.url(),null));}public void onFailed(String url,String error){image.setContentDescription("Изображение недоступно: "+error);}});
+   else loader.load(ref.url(),new MediaLoader.Callback(){public void onLoaded(String url,Bitmap b){image.setImageBitmap(b);image.setOnClickListener(v->ImageViewer.show(c,ref.url(),null));}public void onFailed(String url,String error){image.setContentDescription("Image unavailable: "+error);}});
   }
  }
  @Override public int getItemCount(){return rows.size();}

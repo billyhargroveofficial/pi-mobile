@@ -1,4 +1,13 @@
-# Pi Mobile protocol (v0.5.1 implementation contract)
+# Pi Mobile protocol (v0.6.000 implementation contract)
+
+## Additions in 0.6.000
+
+- Snapshot and live frames include `checkpoint:{stream,epoch,rows:[[id,sha256],…]}` for the bounded live tail. `subscribe` optionally echoes it as `resume`. Matching stream/session/epoch returns `messages` with `resumed:true`, only changed/new bodies, `removedIds`, authoritative tail `order`, metadata and a fresh checkpoint. Invalid, oversized or stale checkpoints fall back to a full snapshot. Gateway restart, bridge re-registration and history epoch changes invalidate old checkpoints. Eviction of a prefix from a paginated tail is not treated as deletion of history.
+- Read commands have their own budget: 120/minute; mutation commands remain 30/minute. Loading history cannot exhaust the prompt/abort budget.
+- `GET /api/usage`: bearer-authenticated, no browser origins; cached 30 seconds, single-flight. Returns an allowlisted snapshot for Codex/Cursor/Grok with status, observed/updated times and actual usage windows. Orca is queried locally through `accounts.list` with `refreshUsage:false`. No account credentials, raw errors, emails or account records are forwarded. Missing quotas remain unavailable, never zero.
+- Android caches snapshots in its private no-backup directory, scoped by SHA256 of endpoint/token/session, with up to8 files of2MiB each and a7-day expiry. Only text/metadata/image references are cached, not image bytes or automatic command replay. Viewport keys/offsets are local-only.
+- GitHub updater uses a separate unauthenticated HTTP client. APK size, SHA256, package ID, newer versionCode and matching signing certificates are required before handing off to the Android installer. Android confirmation is required; device-token is never sent to GitHub.
+- Assistant progress is plain always-open text. Only tool segments collapse; neutral theme and user bubble preference are local presentation changes.
 
 ## Additions in 0.5.1
 

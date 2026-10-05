@@ -16,12 +16,13 @@
             <TextView android:id="@+id/catalogStatusText" style="@style/Pi.Caption" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="10sp"/>
         </LinearLayout>
     </LinearLayout>
+    <LinearLayout android:id="@+id/usageCards" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingHorizontal="16dp" android:paddingVertical="6dp" android:orientation="vertical" android:visibility="gone"/>
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingHorizontal="16dp" android:gravity="center_vertical" android:orientation="horizontal">
-        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Открытые в Orca" android:textColor="@color/text_secondary" android:textSize="13sp"/>
-        <com.google.android.material.button.MaterialButton android:id="@+id/historyButton" style="@style/Widget.Material3.Button.TextButton" android:layout_width="wrap_content" android:layout_height="48dp" android:text="История"/>
+        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Open in Orca" android:textColor="@color/text_secondary" android:textSize="13sp"/>
+        <com.google.android.material.button.MaterialButton android:id="@+id/historyButton" style="@style/Widget.Material3.Button.TextButton" android:layout_width="wrap_content" android:layout_height="48dp" android:text="History"/>
     </LinearLayout>
     <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
         <androidx.recyclerview.widget.RecyclerView android:id="@+id/catalogList" android:layout_width="match_parent" android:layout_height="match_parent" android:clipToPadding="false" android:paddingHorizontal="12dp" android:paddingBottom="12dp" android:scrollbars="none" android:contentDescription="@string/cd_catalog_list"/>
-        <TextView android:id="@+id/catalogEmptyText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="center" android:gravity="center" android:padding="24dp" android:text="Нет открытых вкладок Pi.\nМожно возобновить диалог из истории." android:textColor="@color/text_secondary" android:textSize="15sp" android:visibility="gone"/>
+        <TextView android:id="@+id/catalogEmptyText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="center" android:gravity="center" android:padding="24dp" android:text="No open Pi tabs.\nResume a conversation from History." android:textColor="@color/text_secondary" android:textSize="15sp" android:visibility="gone"/>
     </FrameLayout>
 </LinearLayout>

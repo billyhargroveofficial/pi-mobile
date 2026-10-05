@@ -51,23 +51,23 @@ public final class ImageGuard {
             return;
         }
         if (images.size() > MAX_IMAGES) {
-            throw new IllegalArgumentException("Не более " + MAX_IMAGES + " изображений в одном сообщении");
+            throw new IllegalArgumentException("No more than " + MAX_IMAGES + " images per message");
         }
         for (ImagePayload image : images) {
             if (image == null) {
-                throw new IllegalArgumentException("Пустое изображение");
+                throw new IllegalArgumentException("Empty image");
             }
             if (!isAllowedMimeType(image.mimeType())) {
-                throw new IllegalArgumentException("Формат не поддерживается: " + image.mimeType());
+                throw new IllegalArgumentException("Unsupported format: " + image.mimeType());
             }
             if (image.size() <= 0) {
-                throw new IllegalArgumentException("Пустой файл изображения");
+                throw new IllegalArgumentException("Empty image file");
             }
         }
         long total = totalBytes(images);
         if (total > MAX_TOTAL_BYTES) {
             throw new IllegalArgumentException(
-                    "Суммарный размер изображений " + (total / (1024 * 1024)) + " МБ превышает лимит 10 МБ");
+                    "Total image size of " + (total / (1024 * 1024)) + " MB exceeds the 10 MB limit");
         }
     }
 }

@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#121215</color><color name="surface">#1E1E23</color><color name="surface_alt">#2B2B32</color><color name="surface_input">#222228</color>
-    <color name="outline">#909099</color><color name="outline_soft">#44444D</color>
-    <color name="text_primary">#E7E7ED</color><color name="text_secondary">#C5C5CF</color><color name="text_hint">#9999A5</color>
-    <color name="accent">#AFC6FF</color><color name="on_accent">#173568</color><color name="accent_pressed">#D5E0FF</color><color name="accent_soft">#2D4472</color><color name="on_accent_soft">#DAE2FF</color>
-    <color name="secondary">#BFC5D6</color><color name="secondary_soft">#3E4557</color><color name="on_secondary_soft">#E1E4EF</color>
-    <color name="success">#9ED7B1</color><color name="warning">#EAC477</color><color name="danger">#FFB4A9</color><color name="danger_soft">#5F2825</color>
+    <color name="bg">#000000</color><color name="surface">#212121</color><color name="surface_alt">#303030</color><color name="surface_input">#303030</color>
+    <color name="outline">#777777</color><color name="outline_soft">#484848</color>
+    <color name="text_primary">#F5F5F5</color><color name="text_secondary">#B4B4B4</color><color name="text_hint">#969696</color>
+    <color name="accent">#FFFFFF</color><color name="on_accent">#141414</color><color name="accent_pressed">#D8D8D8</color><color name="accent_soft">#303030</color><color name="on_accent_soft">#FFFFFF</color>
+    <color name="secondary">#B4B4B4</color><color name="secondary_soft">#303030</color><color name="on_secondary_soft">#F5F5F5</color>
+    <color name="bubble_user">#2F5DE5</color><color name="bubble_assistant">#303030</color><color name="bubble_tool">#242424</color><color name="bubble_custom">#212121</color>
+    <color name="success">#73D59A</color><color name="warning">#E4BE78</color><color name="danger">#F39A91</color><color name="danger_soft">#522B28</color>
 </resources>

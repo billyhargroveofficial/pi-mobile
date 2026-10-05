@@ -71,6 +71,9 @@ public final class MainActivity extends AppCompatActivity
     private final java.util.Map<String,Action> actions=new java.util.HashMap<>();
     private final android.os.Handler resumeHandler = new android.os.Handler(android.os.Looper.getMainLooper());
 
+    private ru.billyhargrove.pimobile.ui.AppUpdates updates;
+     private ru.billyhargrove.pimobile.ui.UsageCards usageCards;
+    @Override protected void onResume(){super.onResume();if(updates!=null)updates.resume();}
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -79,6 +82,7 @@ public final class MainActivity extends AppCompatActivity
         app = PiApp.get(this);
         client = app.client();
         settings = app.settings();
+        usageCards=new ru.billyhargrove.pimobile.ui.UsageCards(findViewById(R.id.usageCards),client.api());
 
         connectionDot = findViewById(R.id.connectionDot);
         connectionStatusText = findViewById(R.id.connectionStatusText);
@@ -94,7 +98,10 @@ public final class MainActivity extends AppCompatActivity
         });
         connectErrorText = sheet.findViewById(R.id.connectErrorText);
         connectPanel = sheet.findViewById(R.id.connectPanel);
-        connectUrlInput = sheet.findViewById(R.id.connectUrlInput);
+        updates=new ru.billyhargrove.pimobile.ui.AppUpdates(this);
+        com.google.android.material.button.MaterialButton updateButton=new com.google.android.material.button.MaterialButton(this);updateButton.setId(R.id.checkUpdates);updateButton.setText("Check for updates · "+BuildConfig.VERSION_NAME);((android.view.ViewGroup)connectPanel).addView(updateButton);updateButton.setOnClickListener(v->updates.check(true));
+        com.google.android.material.button.MaterialButton bubbleButton=new com.google.android.material.button.MaterialButton(this);bubbleButton.setText("Your bubble color");((android.view.ViewGroup)connectPanel).addView(bubbleButton);bubbleButton.setOnClickListener(v->ru.billyhargrove.pimobile.ui.BubbleColors.show(this));
+         connectUrlInput = sheet.findViewById(R.id.connectUrlInput);
         connectTokenInput = sheet.findViewById(R.id.connectTokenInput);
         connectButton = sheet.findViewById(R.id.connectButton);
         disconnectButton = sheet.findViewById(R.id.disconnectButton);
@@ -111,7 +118,7 @@ public final class MainActivity extends AppCompatActivity
         list.setLayoutManager(new LinearLayoutManager(this));
         adapter = new CatalogAdapter(this);
         list.setAdapter(adapter);
-        ru.billyhargrove.pimobile.ui.SwipeAction.attach(list,"Закрыть",p->{CatalogRow row=adapter.rowAt(p);return row!=null&&row.kind()==CatalogRow.Kind.SESSION&&row.connected();},p->{CatalogRow row=adapter.rowAt(p);if(row!=null)confirmClose(row);});
+        ru.billyhargrove.pimobile.ui.SwipeAction.attach(list,"Close",p->{CatalogRow row=adapter.rowAt(p);return row!=null&&row.kind()==CatalogRow.Kind.SESSION&&row.connected();},p->{CatalogRow row=adapter.rowAt(p);if(row!=null)confirmClose(row);});
         ru.billyhargrove.pimobile.ui.ExpressiveMotion.list(list);
         ru.billyhargrove.pimobile.ui.ExpressiveMotion.buttons(findViewById(R.id.mainRoot));
         ru.billyhargrove.pimobile.ui.ExpressiveMotion.buttons(sheet);
@@ -128,13 +135,13 @@ public final class MainActivity extends AppCompatActivity
             showMessage(getString(R.string.state_disconnected), false);
         });
         healthCheckButton.setOnClickListener(v -> onHealthCheckClicked());
-        refreshButton.setOnClickListener(v -> onRefreshClicked());
+        refreshButton.setOnClickListener(v -> {onRefreshClicked();usageCards.refresh();});
         findViewById(R.id.historyButton).setOnClickListener(v -> {
-            if (client.state() != ConnectionState.CONNECTED) { showMessage("Сначала подключись к Mac", true); return; }
+            if (client.state() != ConnectionState.CONNECTED) { showMessage("Connect to your computer first", true); return; }
             archiveSheet = new ru.billyhargrove.pimobile.ui.ArchiveSheet(this, app, (id, title) ->
                 new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                    .setTitle("Возобновить диалог?").setMessage(title + "\n\nОн откроется в Orca на Mac с прежней историей. Сообщение агенту не отправляется.")
-                    .setNegativeButton("Отмена", null).setPositiveButton("Открыть", (d, which) -> resumeSaved(id, title)).show(),(id,success,failure)->{
+                    .setTitle("Resume conversation?").setMessage(title + "\n\nThis opens the saved conversation in Orca. No prompt will be sent.")
+                    .setNegativeButton("Cancel", null).setPositiveButton("Open", (d, which) -> resumeSaved(id, title)).show(),(id,success,failure)->{
                     try{sendAction(id,"delete",new org.json.JSONObject().put("confirm",true),success,failure);}catch(org.json.JSONException e){failure.accept(e.getMessage());}
                 });
             archiveSheet.show();
@@ -153,6 +160,7 @@ public final class MainActivity extends AppCompatActivity
     protected void onStart() {
         super.onStart();
         client.setListener(this);
+        updates.check(false);
         if (client.state() == ConnectionState.IDLE && settings.hasConnection()) {
             client.connect(settings.baseUrl(), settings.token());
         }
@@ -165,10 +173,12 @@ public final class MainActivity extends AppCompatActivity
     protected void onStop() {
         super.onStop();
         client.clearListener(this);
+         usageCards.stop();
     }
 
     @Override protected void onDestroy() {
         connectionSheet.dismiss();
+        if(updates!=null)updates.close();
         if (archiveSheet != null) archiveSheet.dismiss();
         resumeHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
@@ -262,7 +272,7 @@ public final class MainActivity extends AppCompatActivity
                 if (catalog != null) {
                     renderCatalog(catalog);
                 } else {
-                    showMessage(failure == null ? "Не удалось обновить каталог" : failure, true);
+                    showMessage(failure == null ? "Could not refresh sessions" : failure, true);
                 }
             });
         });
@@ -272,6 +282,7 @@ public final class MainActivity extends AppCompatActivity
 
     @Override
     public void onConnectionState(ConnectionState state, String detail) {
+        if(state==ConnectionState.CONNECTED)usageCards.start(settings.baseUrl(),settings.token());else usageCards.stop();
         connectionStatusText.setText(StatusUi.connectionLabel(this, state));
         connectionDot.setBackgroundTintList(
                 android.content.res.ColorStateList.valueOf(StatusUi.connectionDotColor(this, state)));
@@ -309,27 +320,27 @@ public final class MainActivity extends AppCompatActivity
 
     @Override public void onData(String requestId, String sessionId, org.json.JSONObject data) {
         if (requestId.equals(resumeRequest) && "resume".equals(data.optString("type"))) {
-            showMessage("Вкладка открыта в Orca. Ждём подключение Pi…", false);
+            showMessage("Tab opened in Orca. Waiting for Pi…", false);
             openResumedIfReady(client.catalog());
         }
     }
 
     @Override public void onCommandUncertain(String requestId, String sessionId, String reason) {
-        Action action=actions.remove(requestId);if(action!=null){action.failure.accept("Результат неизвестен. Обнови список перед повтором.");return;}
-        if (requestId.equals(resumeRequest)) { clearResume(); showMessage("Результат открытия неизвестен. Проверь вкладки Orca на Mac; автоматического повтора нет.", true); }
+        Action action=actions.remove(requestId);if(action!=null){action.failure.accept("Result unknown. Refresh before retrying.");return;}
+        if (requestId.equals(resumeRequest)) { clearResume(); showMessage("Launch result unknown. Check Orca; no automatic retry.", true); }
     }
 
-    private void sendAction(String id,String kind,org.json.JSONObject args,Runnable success,java.util.function.Consumer<String> failure){String request=client.readCommand(id,kind,args);if(request==null){failure.accept("Нет подключения к Mac");return;}actions.put(request,new Action(success,failure));}
+    private void sendAction(String id,String kind,org.json.JSONObject args,Runnable success,java.util.function.Consumer<String> failure){String request=client.readCommand(id,kind,args);if(request==null){failure.accept("Not connected to your computer");return;}actions.put(request,new Action(success,failure));}
 
     private void confirmClose(CatalogRow row){
         boolean running=row.status()==ru.billyhargrove.pimobile.core.SessionStatus.RUNNING;
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this).setTitle(running?"Прервать Pi и закрыть вкладку?":"Закрыть вкладку Pi?").setMessage(row.title()+"\n\n"+(running?"Текущая задача будет прервана. ":"")+"История останется на диске.").setNegativeButton("Отмена",null).setPositiveButton("Закрыть",(d,w)->{try{sendAction(row.sessionId(),"close",new org.json.JSONObject().put("confirm",true).put("force",running),()->showMessage("Вкладка закрыта",false),error->showMessage(error,true));}catch(org.json.JSONException ignored){}}).show();
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this).setTitle(running?"Interrupt Pi and close the tab?":"Close Pi tab?").setMessage(row.title()+"\n\n"+(running?"The current task will be interrupted. ":"")+"Conversation history will remain on disk.").setNegativeButton("Cancel",null).setPositiveButton("Close",(d,w)->{try{sendAction(row.sessionId(),"close",new org.json.JSONObject().put("confirm",true).put("force",running),()->showMessage("Tab closed",false),error->showMessage(error,true));}catch(org.json.JSONException ignored){}}).show();
     }
 
     @Override public void onNewSession(String workspaceId,String title){
         if(resumeSession!=null)return;
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this).setTitle("Новая сессия").setMessage("Открыть новый Pi в «"+title+"»? Появится настоящая вкладка Orca; промпт не отправляется.").setNegativeButton("Отмена",null).setPositiveButton("Создать",(d,w)->{
-            try{resumeSession=java.util.UUID.randomUUID().toString();resumeTitle="Новый диалог";resumeRequest=client.readCommand(resumeSession,"new",new org.json.JSONObject().put("workspaceId",workspaceId));if(resumeRequest==null){clearResume();showMessage("Нет подключения к Mac",true);return;}findViewById(R.id.historyButton).setEnabled(false);showMessage("Создаём вкладку Pi…",false);resumeHandler.postDelayed(()->{if(resumeSession!=null){clearResume();showMessage("Pi ещё не подключился. Проверь созданную вкладку Orca; повтор автоматически не выполняется.",true);}},45000);}catch(org.json.JSONException ignored){clearResume();}
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this).setTitle("New session").setMessage("Start a new Pi in “"+title+"”? This creates an Orca tab without sending a prompt.").setNegativeButton("Cancel",null).setPositiveButton("Create",(d,w)->{
+            try{resumeSession=java.util.UUID.randomUUID().toString();resumeTitle="New conversation";resumeRequest=client.readCommand(resumeSession,"new",new org.json.JSONObject().put("workspaceId",workspaceId));if(resumeRequest==null){clearResume();showMessage("Not connected to your computer",true);return;}findViewById(R.id.historyButton).setEnabled(false);showMessage("Creating Pi tab…",false);resumeHandler.postDelayed(()->{if(resumeSession!=null){clearResume();showMessage("Pi has not connected yet. Check the new Orca tab; no automatic retry.",true);}},45000);}catch(org.json.JSONException ignored){clearResume();}
         }).show();
     }
 
@@ -338,10 +349,10 @@ public final class MainActivity extends AppCompatActivity
         if (archiveSheet != null) archiveSheet.dismiss();
         resumeSession = id; resumeTitle = title;
         resumeRequest = client.readCommand(id, "resume", new org.json.JSONObject());
-        if (resumeRequest == null) { clearResume(); showMessage("Нет подключения к Mac", true); return; }
+        if (resumeRequest == null) { clearResume(); showMessage("Not connected to your computer", true); return; }
         findViewById(R.id.historyButton).setEnabled(false);
-        ((TextView)findViewById(R.id.catalogSummary)).setText("Открываем диалог в Orca…");
-        resumeHandler.postDelayed(() -> { if (resumeSession != null) { clearResume(); showMessage("Pi ещё не подключился. Проверь открытую вкладку на Mac — возможно, нужен ответ на диалог запуска.", true); } }, 45000);
+        ((TextView)findViewById(R.id.catalogSummary)).setText("Opening conversation in Orca…");
+        resumeHandler.postDelayed(() -> { if (resumeSession != null) { clearResume(); showMessage("Pi has not connected yet. Check Orca for a startup or trust prompt.", true); } }, 45000);
     }
 
     private void openResumedIfReady(Catalog catalog) {
@@ -375,7 +386,7 @@ public final class MainActivity extends AppCompatActivity
         adapter.submit(rows);
         TextView summary = findViewById(R.id.catalogSummary);
         long running = catalog.sessions().stream().filter(s -> s.status() == ru.billyhargrove.pimobile.core.SessionStatus.RUNNING && s.connected()).count();
-        summary.setText(resumeSession != null ? "Открываем диалог в Orca…" : "Пространства: " + catalog.workspaces().size() + "  ·  Вкладки: " + (catalog.sessions().size() + catalog.terminals().size()) + (running > 0 ? "  ·  В работе: " + running : ""));
+        summary.setText(resumeSession != null ? "Opening conversation in Orca…" : "Workspaces: " + catalog.workspaces().size() + "  ·  Tabs: " + (catalog.sessions().size() + catalog.terminals().size()) + (running > 0 ? "  ·  Running: " + running : ""));
         if (firstCatalog && !rows.isEmpty()) {
             firstCatalog = false;
             ru.billyhargrove.pimobile.ui.ExpressiveMotion.enter(findViewById(R.id.catalogList), 80);
@@ -408,7 +419,7 @@ public final class MainActivity extends AppCompatActivity
             return t.getMessage();
         }
         if (t == null || t.getMessage() == null || t.getMessage().isEmpty()) {
-            return "неизвестная ошибка";
+            return "unknown error";
         }
         return t.getMessage();
     }

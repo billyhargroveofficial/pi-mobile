@@ -61,7 +61,7 @@ public final class CatalogRow {
     }
 
     public static CatalogRow terminal(TerminalInfo terminal) {
-        String subtitle = terminal.agent().isEmpty() ? "Агент не указан" : terminal.agent();
+        String subtitle = terminal.agent().isEmpty() ? "Agent unspecified" : terminal.agent();
         return new CatalogRow(
                 Kind.TERMINAL,
                 "terminal:" + terminal.id(),
@@ -71,7 +71,7 @@ public final class CatalogRow {
                 terminal.connected() ? SessionStatus.IDLE : SessionStatus.OFFLINE,
                 terminal.connected(),
                 true,
-                "требуется расширение",
+                "extension required",
                 0);
     }
 
@@ -87,7 +87,7 @@ public final class CatalogRow {
             sb.append(session.model());
         }
         if (!session.connected() && sb.length() == 0) {
-            sb.append("Процесс не подключён");
+            sb.append("Process disconnected");
         }
         return sb.toString();
     }
@@ -95,11 +95,11 @@ public final class CatalogRow {
     private static String statusBadge(SessionStatus status) {
         switch (status) {
             case RUNNING:
-                return "работает";
+                return "running";
             case IDLE:
-                return "ожидает";
+                return "idle";
             case OFFLINE:
-                return "офлайн";
+                return "offline";
             default:
                 return "";
         }

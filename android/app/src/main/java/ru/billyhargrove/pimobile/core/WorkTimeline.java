@@ -21,7 +21,7 @@ public final class WorkTimeline {
     if(m.role()==ChatMessage.Role.USER||m.role()==ChatMessage.Role.ASSISTANT){
      appendTools(out,segment,turn,collapsed);segment.clear();
      boolean progress=m.role()==ChatMessage.Role.ASSISTANT;String key=(progress?"progress:":"")+m.stableKey();
-     out.add(new Row(key,turn,key,m,false,collapsed.contains(key),progress,0));
+     out.add(new Row(key,turn,key,m,false,false,progress,0));
     }else segment.add(m);
    }
    appendTools(out,segment,turn,collapsed);

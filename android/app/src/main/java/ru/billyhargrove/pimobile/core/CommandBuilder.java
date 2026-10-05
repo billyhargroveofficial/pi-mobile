@@ -41,7 +41,7 @@ public final class CommandBuilder {
             o.put("type", "subscribe");
             o.put("sessionId", sessionId);
         } catch (JSONException e) {
-            throw new IllegalStateException("Не удалось собрать subscribe", e);
+            throw new IllegalStateException("Could not build subscription", e);
         }
         return o;
     }
@@ -53,7 +53,7 @@ public final class CommandBuilder {
                                            Behavior behavior) {
         requireId(sessionId, "sessionId");
         requireId(requestId, "requestId");
-        if(images!=null){if(images.size()>3||ImageGuard.totalBytes(images)>ImageGuard.MAX_TOTAL_BYTES)throw new IllegalArgumentException("Не более 3 вложений, суммарно до 10 МБ");for(ImagePayload p:images){if(p!=null&&p.isFile()){if(p.size()==0||p.fileName().isBlank()||p.fileName().length()>200||p.fileName().matches(".*[\\\\/\\x00-\\x1f].*"))throw new IllegalArgumentException("Некорректный файл");}else ImageGuard.validate(java.util.Collections.singletonList(p));}}
+        if(images!=null){if(images.size()>3||ImageGuard.totalBytes(images)>ImageGuard.MAX_TOTAL_BYTES)throw new IllegalArgumentException("Up to 3 attachments, totaling no more than 10 MB");for(ImagePayload p:images){if(p!=null&&p.isFile()){if(p.size()==0||p.fileName().isBlank()||p.fileName().length()>200||p.fileName().matches(".*[\\\\/\\x00-\\x1f].*"))throw new IllegalArgumentException("Invalid file");}else ImageGuard.validate(java.util.Collections.singletonList(p));}}
         JSONObject o = new JSONObject();
         try {
             o.put("type", "command");
@@ -73,7 +73,7 @@ public final class CommandBuilder {
             }
             o.put("behavior", (behavior == null ? Behavior.FOLLOW_UP : behavior).wire());
         } catch (JSONException e) {
-            throw new IllegalStateException("Не удалось собрать команду prompt", e);
+            throw new IllegalStateException("Could not build prompt command", e);
         }
         return o;
     }
@@ -88,7 +88,7 @@ public final class CommandBuilder {
             o.put("requestId", requestId);
             o.put("command", "abort");
         } catch (JSONException e) {
-            throw new IllegalStateException("Не удалось собрать команду abort", e);
+            throw new IllegalStateException("Could not build abort command", e);
         }
         return o;
     }
@@ -107,7 +107,7 @@ public final class CommandBuilder {
 
     private static void requireId(String value, String name) {
         if (value == null || value.trim().isEmpty()) {
-            throw new IllegalArgumentException("Пустой " + name);
+            throw new IllegalArgumentException("Empty " + name);
         }
     }
 }

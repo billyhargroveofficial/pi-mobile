@@ -4,7 +4,7 @@ import java.util.Objects;
 
 /**
  * An Orca terminal that is not bridged to Pi yet. Such entries are strictly
- * read-only in the app and always labelled "требуется расширение".
+ * read-only in the app and always labelled "extension required".
  */
 public final class TerminalInfo {
 
@@ -46,7 +46,7 @@ public final class TerminalInfo {
         if (!title.isEmpty()) {
             return title;
         }
-        return id.isEmpty() ? "Терминал" : id;
+        return id.isEmpty() ? "Terminal" : id;
     }
 
     @Override

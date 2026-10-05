@@ -62,10 +62,12 @@ public final class HttpApi {
         JSONObject json = getJson(EndpointPolicy.apiUrl(baseUrl, "/api/catalog"), token);
         Catalog catalog = CatalogParser.parse(json);
         if (catalog == null) {
-            throw new ApiException("Сервер вернул неожиданный ответ каталога");
+            throw new ApiException("Unexpected catalog response from server");
         }
         return catalog;
     }
+
+    public JSONObject fetchUsage(String baseUrl,String token)throws IOException{return getJson(EndpointPolicy.apiUrl(baseUrl,"/api/usage"),token);}
 
     public JSONObject fetchArchive(String baseUrl, String token, int offset, String query) throws IOException {
         return getJson(EndpointPolicy.apiUrl(baseUrl, "/api/archive?offset=" + offset + "&q=" + encodePathSegment(query)), token);
@@ -76,7 +78,7 @@ public final class HttpApi {
         JSONObject json = getJson(EndpointPolicy.apiUrl(baseUrl, path), token);
         Snapshot snapshot = SnapshotParser.parse(json);
         if (snapshot == null) {
-            throw new ApiException("Сервер вернул неожиданный снимок сессии");
+            throw new ApiException("Unexpected session snapshot from server");
         }
         return snapshot;
     }
@@ -91,7 +93,7 @@ public final class HttpApi {
     public byte[] fetchMedia(String baseUrl, String token, String rawUrl) throws IOException {
         String resolved = MediaUrlPolicy.resolve(baseUrl, rawUrl);
         if (resolved == null) {
-            throw new ApiException("Медиа-ссылка ведёт за пределы настроенного сервера");
+            throw new ApiException("Media URL points outside the configured server");
         }
         Request request = new Request.Builder()
                 .url(resolved)
@@ -108,11 +110,11 @@ public final class HttpApi {
             }
             ResponseBody body = response.body();
             if (body == null) {
-                throw new ApiException("Пустой ответ изображения");
+                throw new ApiException("Empty image response");
             }
             long declared = body.contentLength();
             if (declared > ImageGuard.MAX_TOTAL_BYTES) {
-                throw new ApiException("Изображение больше 10 МБ");
+                throw new ApiException("Image exceeds 10 MB");
             }
             return readCapped(body.byteStream(), ImageGuard.MAX_TOTAL_BYTES);
         }
@@ -133,7 +135,7 @@ public final class HttpApi {
             try {
                 return new JSONObject(body);
             } catch (JSONException e) {
-                throw new ApiException("Некорректный JSON от сервера", response.code(), e);
+                throw new ApiException("Invalid JSON from server", response.code(), e);
             }
         }
     }
@@ -143,13 +145,13 @@ public final class HttpApi {
         switch (response.code()) {
             case 401:
             case 403:
-                hint = "Токен отклонён сервером. Проверьте токен в настройках.";
+                hint = "Server rejected the token. Check your token in Settings.";
                 break;
             case 404:
-                hint = "Сервер не нашёл запрошенный ресурс.";
+                hint = "Requested resource was not found.";
                 break;
             default:
-                hint = "Ошибка сервера: HTTP " + response.code();
+                hint = "Server error: HTTP " + response.code();
                 break;
         }
         String serverError = errorFromBody(body);
@@ -194,7 +196,7 @@ public final class HttpApi {
         while ((read = in.read(buffer)) != -1) {
             total += read;
             if (total > cap) {
-                throw new ApiException("Изображение больше 10 МБ");
+                throw new ApiException("Image exceeds 10 MB");
             }
             out.write(buffer, 0, read);
         }

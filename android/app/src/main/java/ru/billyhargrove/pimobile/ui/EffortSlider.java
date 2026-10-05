@@ -19,7 +19,7 @@ public final class EffortSlider extends AppCompatSeekBar {
    public void onProgressChanged(SeekBar s,int progress,boolean fromUser){ViewCompat.setStateDescription(EffortSlider.this,label(value()));float target=levels.size()>1?progress/(float)(levels.size()-1):0;if(ExpressiveMotion.enabled()&&isLaidOut())travel.animateToFinalPosition(target);else{travel.cancel();position=target;invalidate();}if(change!=null)change.changed(value(),false);if(fromUser)performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);}
    public void onStartTrackingTouch(SeekBar s){getParent().requestDisallowInterceptTouchEvent(true);}
    public void onStopTrackingTouch(SeekBar s){getParent().requestDisallowInterceptTouchEvent(false);if(change!=null)change.changed(value(),true);}
-  });setContentDescription("Уровень effort");
+  });setContentDescription("Effort level");
  }
  public void configure(JSONArray values,String preferred,Change change){this.change=null;levels.clear();if(values!=null)for(int i=0;i<values.length();i++){String v=values.optString(i);if(!v.isEmpty()&&!levels.contains(v))levels.add(v);}setMax(Math.max(1,levels.size()-1));setProgress(Math.max(0,levels.indexOf(preferred)));setEnabled(levels.size()>1);this.change=change;travel.cancel();position=levels.size()>1?getProgress()/(float)(levels.size()-1):0;ViewCompat.setStateDescription(this,label(value()));invalidate();}
  public String value(){return levels.isEmpty()?"off":levels.get(Math.min(getProgress(),levels.size()-1));}

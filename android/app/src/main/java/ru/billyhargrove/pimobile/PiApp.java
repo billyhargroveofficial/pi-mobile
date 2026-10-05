@@ -32,6 +32,7 @@ public final class PiApp extends Application {
         http = HttpClients.get();
         api = new HttpApi(http);
         client = new PiClient(http, api);
+        client.cacheDirectory(new java.io.File(getNoBackupFilesDir(),"conversations"));
         mediaLoader = new MediaLoader(api, settings);
         if (settings.hasConnection()) {
             client.connect(settings.baseUrl(), settings.token());
