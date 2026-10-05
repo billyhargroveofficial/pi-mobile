@@ -10,8 +10,8 @@ android {
         applicationId 'ru.billyhargrove.pimobile'
         minSdk 26
         targetSdk 35
-        versionCode 2
-        versionName '0.2.0-expressive'
+        versionCode 3
+        versionName '0.3.0'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         // No secrets, no tokens, no URLs are baked into BuildConfig.
     }
@@ -58,6 +58,12 @@ android {
 }
 
 dependencies {
+    implementation 'io.noties.markwon:core:4.6.2'
+    implementation 'io.noties.markwon:ext-latex:4.6.2'
+    implementation 'io.noties.markwon:inline-parser:4.6.2'
+    implementation 'io.noties.markwon:ext-tables:4.6.2'
+    implementation 'io.noties.markwon:ext-strikethrough:4.6.2'
+    implementation 'io.noties.markwon:ext-tasklist:4.6.2'
     implementation 'com.google.android.material:material:1.14.0'
     implementation 'androidx.dynamicanimation:dynamicanimation:1.1.0'
     implementation 'androidx.appcompat:appcompat:1.7.0'

@@ -77,7 +77,7 @@ public final class SnapshotParser {
                     parseImages(o.optJSONArray("images")),
                     emptyToNull(CatalogParser.optString(o, "toolName")),
                     ChatMessage.LocalState.NONE,
-                    "", o.optString("toolStatus", "done")));
+                    "", o.optString("toolStatus", "done")).withPresentation(o.optString("turnId","legacy"),o.optString("phase","answer"),o.optString("preview",""),o.optString("documentPath","")));
         }
         return out;
     }

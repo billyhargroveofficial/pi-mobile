@@ -172,6 +172,12 @@ public final class TranscriptStore {
         return new ChangeSet(new ArrayList<>(snapshotView), added, updated, removed, tailTouched);
     }
 
+    public void prepend(List<ChatMessage> older) {
+        LinkedHashMap<String,Entry> merged=new LinkedHashMap<>();
+        for(ChatMessage m:older)if(m!=null)merged.put(m.stableKey(),new Entry(m));
+        merged.putAll(byKey);byKey.clear();byKey.putAll(merged);revision++;rebuildView();
+    }
+
     public List<ChatMessage> transcript() {
         return new ArrayList<>(snapshotView);
     }

@@ -31,7 +31,8 @@ public class ExpressiveUiTest {
             idle();
             scenario.onActivity(a -> {
                 assertTrue(a.findViewById(R.id.sendButton) instanceof MaterialButton);
-                assertTrue(a.findViewById(R.id.behaviorGroup) instanceof MaterialButtonToggleGroup);
+                assertTrue(a.findViewById(R.id.behaviorMenuButton) instanceof MaterialButton);
+                assertTrue(a.findViewById(R.id.modelButton).getParent()==a.findViewById(R.id.sendButton).getParent());
                 assertNotNull(a.findViewById(R.id.sendButton).getContentDescription());
                 assertNotNull(a.findViewById(R.id.attachImageButton).getContentDescription());
             });
@@ -41,18 +42,16 @@ public class ExpressiveUiTest {
     @Test public void behaviorSelectionIsExclusiveAndPersisted() {
         try (ActivityScenario<ChatActivity> scenario = ActivityScenario.launch(chat())) {
             idle();
-            scenario.onActivity(a -> {
-                ru.billyhargrove.pimobile.core.CommandBuilder.Behavior original = PiApp.get(a).settings().behavior();
-                try {
-                    MaterialButton queue = a.findViewById(R.id.behaviorFollowUp);
-                    MaterialButton steer = a.findViewById(R.id.behaviorSteer);
-                    steer.performClick();
-                    assertTrue(steer.isChecked()); assertFalse(queue.isChecked());
-                    assertEquals(ru.billyhargrove.pimobile.core.CommandBuilder.Behavior.STEER, PiApp.get(a).settings().behavior());
-                    queue.performClick();
-                    assertTrue(queue.isChecked()); assertFalse(steer.isChecked());
-                } finally { PiApp.get(a).settings().setBehavior(original); }
-            });
+            final ru.billyhargrove.pimobile.core.CommandBuilder.Behavior[] original={null};
+            scenario.onActivity(a -> original[0]=PiApp.get(a).settings().behavior());
+            try {
+                device.findObject(By.res(context.getPackageName(),"behaviorMenuButton")).click();
+                assertTrue(device.wait(Until.hasObject(By.text("Вмешаться в текущую задачу")),5000));
+                device.findObject(By.text("Вмешаться в текущую задачу")).click();
+                assertTrue(device.wait(Until.gone(By.text("Вмешаться в текущую задачу")),5000));
+                idle();
+                scenario.onActivity(a -> assertEquals(ru.billyhargrove.pimobile.core.CommandBuilder.Behavior.STEER,PiApp.get(a).settings().behavior()));
+            } finally {scenario.onActivity(a -> PiApp.get(a).settings().setBehavior(original[0]));}
         }
     }
 
@@ -61,7 +60,7 @@ public class ExpressiveUiTest {
             idle();
             scenario.onActivity(a -> {
                 Rect root = new Rect(); a.findViewById(R.id.chatRoot).getGlobalVisibleRect(root);
-                for (int id : new int[]{R.id.sendButton, R.id.attachImageButton, R.id.behaviorFollowUp, R.id.behaviorSteer}) {
+                for (int id : new int[]{R.id.sendButton, R.id.attachImageButton, R.id.modelButton, R.id.behaviorMenuButton}) {
                     View view = a.findViewById(id); Rect rect = new Rect();
                     assertTrue(view.getGlobalVisibleRect(rect));
                     assertTrue(root.contains(rect));
@@ -110,13 +109,13 @@ public class ExpressiveUiTest {
             });
             idle();
             assertTrue(device.wait(Until.hasObject(By.res(context.getPackageName(), "toolToggle")),5000));
-            assertFalse(device.hasObject(By.text("partial-one")));
+            assertFalse(device.hasObject(By.res(context.getPackageName(), "messageText")));
             device.findObject(By.res(context.getPackageName(), "toolToggle")).click();
             assertTrue(device.wait(Until.hasObject(By.text("partial-one")),5000));
             scenario.onActivity(a -> adapter[0].submit(java.util.Collections.singletonList(new ru.billyhargrove.pimobile.core.ChatMessage("tool:one",ru.billyhargrove.pimobile.core.ChatMessage.Role.TOOL_RESULT,"partial-two",null,"bash",ru.billyhargrove.pimobile.core.ChatMessage.LocalState.NONE,"","running"))));
             assertTrue(device.wait(Until.hasObject(By.text("partial-two")),5000));
             device.findObject(By.res(context.getPackageName(), "toolToggle")).click();
-            assertTrue(device.wait(Until.gone(By.text("partial-two")),5000));
+            assertTrue(device.wait(Until.gone(By.res(context.getPackageName(), "messageText")),5000));
         }
     }
 
@@ -141,6 +140,20 @@ public class ExpressiveUiTest {
             assertNull(sent[0]);
             device.findObject(By.res(context.getPackageName(),"applyModelButton")).click();idle();assertEquals("test/a:high",sent[0]);
             scenario.onActivity(a->sheet[0].dismiss());
+        }
+    }
+
+    @Test public void markdownAndLatexRenderNativelyInPreview() {
+        final ru.billyhargrove.pimobile.ui.MarkdownPreview[] preview={null};
+        java.util.concurrent.atomic.AtomicBoolean ready=new java.util.concurrent.atomic.AtomicBoolean();
+        try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(chat())) {
+            scenario.onActivity(a->{preview[0]=new ru.billyhargrove.pimobile.ui.MarkdownPreview(a,"example.md","## Заголовок\n\n**Жирный** и `code`.\n\n$$\n\\frac{a}{b}=x^2\n$$\n",link->{});preview[0].show();});
+            for(int attempt=0;attempt<80&&!ready.get();attempt++){
+                scenario.onActivity(a->{android.widget.TextView text=preview[0].findViewById(R.id.documentText);if(text!=null&&text.getText() instanceof android.text.Spanned){android.text.Spanned s=(android.text.Spanned)text.getText();io.noties.markwon.image.AsyncDrawableSpan[] spans=s.getSpans(0,s.length(),io.noties.markwon.image.AsyncDrawableSpan.class);ready.set(spans.length>0&&spans[0].getDrawable().hasResult());}});
+                if(!ready.get())android.os.SystemClock.sleep(100);
+            }
+            assertTrue("LaTeX must produce an actual drawable, not raw source",ready.get());
+            scenario.onActivity(a->{android.widget.TextView text=preview[0].findViewById(R.id.documentText);assertFalse(text.getText().toString().contains("**Жирный**"));preview[0].dismiss();});
         }
     }
 

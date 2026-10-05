@@ -17,6 +17,7 @@ if(!root){
 }
 const hostParent=pathToFileURL(join(root,'dist/index.js')).href;
 registerHooks({resolve(specifier,context,nextResolve){
+  if(specifier==='@earendil-works/pi-coding-agent')return nextResolve(hostParent,context);
   if(specifier.startsWith('@earendil-works/pi-ai'))return nextResolve(specifier,{...context,parentURL:hostParent});
   return nextResolve(specifier,context);
 }});

@@ -73,6 +73,8 @@ public final class PiClient extends WebSocketListener {
         void onAck(Ack ack);
 
         default void onConfiguration(String sessionId, JSONObject configuration) {}
+        default void onTimelineMeta(JSONObject frame) {}
+        default void onData(String requestId,String sessionId,JSONObject data) {}
 
         /** No ack arrived: timeout or the socket died first. Never auto-retried. */
         default void onCommandUncertain(String requestId, String sessionId, String reason) {
@@ -235,6 +237,12 @@ public final class PiClient extends WebSocketListener {
 
     public JSONObject configuration(String sessionId) { return sessionId.equals(configurationSessionId) ? configuration : null; }
 
+    @Nullable public String readCommand(String sessionId,String command,JSONObject args) {
+        WebSocket ws=socket;if(ws==null||state!=ConnectionState.CONNECTED)return null;
+        String id=UUID.randomUUID().toString();
+        try{args.put("type","command").put("command",command).put("sessionId",sessionId).put("requestId",id);if(!sendFrame(ws,args.toString()))return null;registerPending(id,sessionId,false);return id;}catch(JSONException e){return null;}
+    }
+
     // ---------------------------------------------------------------- accessors
 
     public ConnectionState state() {
@@ -390,6 +398,7 @@ public final class PiClient extends WebSocketListener {
             configurationSessionId = object.optString("sessionId", "");
             if (listener != null) listener.onConfiguration(configurationSessionId, configuration);
         }
+        if (("snapshot".equals(type)||"messages".equals(type)) && listener!=null) listener.onTimelineMeta(object);
         switch (type) {
             case "catalog": {
                 Catalog parsed = CatalogParser.parse(object);
@@ -419,6 +428,7 @@ public final class PiClient extends WebSocketListener {
                 break;
             }
             case "ack": {
+                if(object.optBoolean("ok")&&object.optJSONObject("data")!=null&&listener!=null)listener.onData(object.optString("requestId"),object.optString("sessionId"),object.optJSONObject("data"));
                 Ack ack = AckParser.parse(object);
                 if (ack != null) {
                     resolvePending(ack);

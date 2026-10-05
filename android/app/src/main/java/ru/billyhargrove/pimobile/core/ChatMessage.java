@@ -69,6 +69,15 @@ public final class ChatMessage {
     private final String toolStatus;
     private final LocalState localState;
     private final String requestId;
+    private String turnId="legacy",phase="answer",preview="",documentPath="";
+    public String turnId(){return turnId;}
+    public String phase(){return phase;}
+    public String preview(){return preview;}
+    public String documentPath(){return documentPath;}
+    public ChatMessage withPresentation(String turn,String phase,String preview,String document){
+        ChatMessage m=new ChatMessage(id,role,text,images,toolName,localState,requestId,toolStatus);
+        m.turnId=turn==null?"legacy":turn;m.phase=phase==null?"answer":phase;m.preview=preview==null?"":preview;m.documentPath=document==null?"":document;return m;
+    }
 
     public ChatMessage(String id,
                        Role role,
@@ -139,7 +148,7 @@ public final class ChatMessage {
     }
 
     public ChatMessage withLocalState(LocalState state) {
-        return new ChatMessage(id, role, text, images, toolName, state, requestId, toolStatus);
+        return new ChatMessage(id, role, text, images, toolName, state, requestId, toolStatus).withPresentation(turnId,phase,preview,documentPath);
     }
 
     /** Stable identity for diffing the transcript inside the adapter. */
@@ -166,12 +175,12 @@ public final class ChatMessage {
                 && toolName.equals(other.toolName)
                 && toolStatus.equals(other.toolStatus)
                 && localState == other.localState
-                && requestId.equals(other.requestId);
+                && requestId.equals(other.requestId) && turnId.equals(other.turnId) && phase.equals(other.phase) && preview.equals(other.preview) && documentPath.equals(other.documentPath);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, role, text, images, toolName, toolStatus, localState, requestId);
+        return Objects.hash(id, role, text, images, toolName, toolStatus, localState, requestId,turnId,phase,preview,documentPath);
     }
 
     @Override

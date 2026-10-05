@@ -108,8 +108,11 @@ public final class ChatActivity extends AppCompatActivity
     private Button attachButton;
     private Button stopButton;
     private Button backButton;
-    private MaterialButton behaviorFollowUp;
-    private MaterialButton behaviorSteer;
+    private MaterialButton behaviorMenu;
+    private String historyRequest,documentRequest,beforeCursor="";
+    private boolean hasMoreHistory;
+    private long historyEpoch;
+    private ru.billyhargrove.pimobile.ui.MarkdownPreview documentPreview;
     private LinearLayout attachmentStrip;
     private HorizontalScrollView attachmentsScroll;
     private TextView attachmentsTitle;
@@ -167,8 +170,7 @@ public final class ChatActivity extends AppCompatActivity
         attachButton = findViewById(R.id.attachImageButton);
         stopButton = findViewById(R.id.stopButton);
         backButton = findViewById(R.id.backButton);
-        behaviorFollowUp = findViewById(R.id.behaviorFollowUp);
-        behaviorSteer = findViewById(R.id.behaviorSteer);
+        behaviorMenu = findViewById(R.id.behaviorMenuButton);
         attachmentStrip = findViewById(R.id.attachmentStrip);
         attachmentsScroll = findViewById(R.id.attachmentsScroll);
         attachmentsTitle = findViewById(R.id.attachmentsTitle);
@@ -187,11 +189,14 @@ public final class ChatActivity extends AppCompatActivity
         messageList.setAdapter(adapter);
         ru.billyhargrove.pimobile.ui.ExpressiveMotion.list(messageList);
 
-        CommandBuilder.Behavior stored = settings.behavior();
-        behaviorSteer.setChecked(stored == CommandBuilder.Behavior.STEER);
-        behaviorFollowUp.setChecked(stored == CommandBuilder.Behavior.FOLLOW_UP);
-        behaviorFollowUp.setOnClickListener(v -> settings.setBehavior(CommandBuilder.Behavior.FOLLOW_UP));
-        behaviorSteer.setOnClickListener(v -> settings.setBehavior(CommandBuilder.Behavior.STEER));
+        updateBehavior();
+        behaviorMenu.setOnClickListener(v -> {
+            androidx.appcompat.widget.PopupMenu menu=new androidx.appcompat.widget.PopupMenu(this,behaviorMenu);
+            menu.getMenu().add(0,1,0,"В очередь после задачи");menu.getMenu().add(0,2,1,"Вмешаться в текущую задачу");
+            menu.setOnMenuItemClickListener(item->{settings.setBehavior(item.getItemId()==2?CommandBuilder.Behavior.STEER:CommandBuilder.Behavior.FOLLOW_UP);updateBehavior();return true;});menu.show();
+        });
+        findViewById(R.id.historyProgress).setOnClickListener(v->loadOlder());
+        messageList.addOnScrollListener(new RecyclerView.OnScrollListener(){@Override public void onScrolled(RecyclerView list,int dx,int dy){if(dy<0&&((LinearLayoutManager)list.getLayoutManager()).findFirstVisibleItemPosition()<3)loadOlder();}});
 
         backButton.setOnClickListener(v -> finishAfterTransition());
         sendButton.setOnClickListener(v -> onSendClicked());
@@ -240,6 +245,8 @@ public final class ChatActivity extends AppCompatActivity
 
     @Override protected void onDestroy() {
         if (modelSheet != null) modelSheet.dismiss();
+        if(documentPreview!=null)documentPreview.dismiss();
+        if(adapter!=null)adapter.close();
         super.onDestroy();
     }
 
@@ -262,6 +269,41 @@ public final class ChatActivity extends AppCompatActivity
         modelSheet.show();
     }
 
+    private void updateBehavior(){behaviorMenu.setText(settings.behavior()==CommandBuilder.Behavior.STEER?"Вмешаться ▾":"Очередь ▾");}
+
+    @Override public void onTimelineMeta(org.json.JSONObject frame){
+        if(!sessionId.equals(frame.optString("sessionId")))return;
+        adapter.metadata(frame);
+        if("snapshot".equals(frame.optString("type"))){
+            historyEpoch=frame.optLong("epoch");historyRequest=null;
+            org.json.JSONObject h=frame.optJSONObject("history");hasMoreHistory=h!=null&&h.optBoolean("hasMore");beforeCursor=h==null?"":h.optString("before","");historyButton();
+        }
+    }
+    private void historyButton(){Button b=findViewById(R.id.historyProgress);b.setVisibility(hasMoreHistory?View.VISIBLE:View.GONE);b.setEnabled(historyRequest==null);b.setText(historyRequest==null?"↑ Предыдущие сообщения":"Загружаю…");}
+    private void loadOlder(){if(!hasMoreHistory||historyRequest!=null||beforeCursor.isEmpty())return;try{historyRequest=client.readCommand(sessionId,"history",new org.json.JSONObject().put("before",beforeCursor).put("limit",40));historyButton();if(historyRequest==null)toast("Для загрузки истории нужен подключённый Pi");}catch(org.json.JSONException ignored){}}
+    @Override public void onData(String request,String id,org.json.JSONObject data){
+        if(!sessionId.equals(id))return;
+        if("history".equals(data.optString("type"))&&request.equals(historyRequest)){
+            if(data.optLong("epoch")!=historyEpoch){historyRequest=null;historyButton();return;}
+            LinearLayoutManager lm=(LinearLayoutManager)messageList.getLayoutManager();int first=lm.findFirstVisibleItemPosition();String anchor=adapter.keyAt(first);View top=lm.findViewByPosition(first);int offset=top==null?0:top.getTop()-messageList.getPaddingTop();
+            store.prepend(ru.billyhargrove.pimobile.core.SnapshotParser.parseMessages(data.optJSONArray("messages")));adapter.metadata(data);render();
+            int position=adapter.positionOf(anchor);if(position>=0)lm.scrollToPositionWithOffset(position,offset);
+            org.json.JSONObject h=data.optJSONObject("history");if(h!=null){beforeCursor=h.optString("before");hasMoreHistory=h.optBoolean("hasMore");}historyButton();
+        }else if("document".equals(data.optString("type"))&&request.equals(documentRequest)){
+            if(documentPreview!=null)documentPreview.dismiss();String path=data.optString("path");
+            documentPreview=new ru.billyhargrove.pimobile.ui.MarkdownPreview(this,path,data.optString("text"),link->{String parent=path.contains("/")?path.substring(0,path.lastIndexOf('/')+1):"";onDocument(link.startsWith("/")||link.contains(":")?link:parent+link);});documentPreview.show();
+        }
+    }
+    @Override public void onDocument(String raw){
+        android.net.Uri uri=android.net.Uri.parse(raw);String scheme=uri.getScheme();
+        if("https".equalsIgnoreCase(scheme)||"http".equalsIgnoreCase(scheme)){try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(Exception e){toast("Нет приложения для этой ссылки");}return;}
+        if(scheme!=null&&!"file".equalsIgnoreCase(scheme)){toast("Этот тип ссылки не поддерживается");return;}
+        String path=scheme==null?raw:uri.getPath();if(path==null)return;int hash=path.indexOf('#');if(hash>=0)path=path.substring(0,hash);path=android.net.Uri.decode(path);
+        if(!path.toLowerCase(java.util.Locale.ROOT).matches(".*\\.(md|markdown)$")){toast("Предпросмотр поддерживает .md и .markdown");return;}
+        if(documentRequest!=null){toast("Файл уже загружается");return;}
+        try{documentRequest=client.readCommand(sessionId,"document",new org.json.JSONObject().put("path",path));if(documentRequest==null)toast("Для предпросмотра нужен подключённый Pi");}catch(org.json.JSONException ignored){}
+    }
+
     // -------------------------------------------------------------- commands
 
     private void onSendClicked() {
@@ -281,9 +323,7 @@ public final class ChatActivity extends AppCompatActivity
             toast(getString(R.string.error_empty_message));
             return;
         }
-        CommandBuilder.Behavior behavior = behaviorSteer.isChecked()
-                ? CommandBuilder.Behavior.STEER
-                : CommandBuilder.Behavior.FOLLOW_UP;
+        CommandBuilder.Behavior behavior = settings.behavior();
 
         String requestId = client.sendPrompt(sessionId, text, payloads, behavior);
         if (requestId == null) {
@@ -498,6 +538,8 @@ public final class ChatActivity extends AppCompatActivity
 
     @Override
     public void onAck(Ack ack) {
+        if(ack.requestId().equals(historyRequest)){historyRequest=null;historyButton();if(!ack.ok())toast(errorText(ack));return;}
+        if(ack.requestId().equals(documentRequest)){documentRequest=null;if(!ack.ok())toast(errorText(ack));return;}
         if (ack.requestId().equals(configurationRequest)) {
             configurationRequest=null;
             if(ack.ok()){if(modelSheet!=null)modelSheet.dismiss();toast("Настройки текущего Pi изменены");}
@@ -534,6 +576,8 @@ public final class ChatActivity extends AppCompatActivity
 
     @Override
     public void onCommandUncertain(String requestId, String sessionId, String reason) {
+        if(requestId.equals(historyRequest)){historyRequest=null;historyButton();toast("История не загружена: "+reason);return;}
+        if(requestId.equals(documentRequest)){documentRequest=null;toast("Файл не загружен: "+reason);return;}
         if(requestId.equals(configurationRequest)) {
             configurationRequest=null;
             if(modelSheet!=null)modelSheet.failed("Результат неизвестен. Проверь модель в терминале перед повтором.");
@@ -638,7 +682,8 @@ public final class ChatActivity extends AppCompatActivity
         String model = configuration == null ? "" : configuration.optString("model", "");
         if(model.contains("/"))model=model.substring(model.lastIndexOf('/')+1);
         String detail=model.isEmpty()?"На связи":model+" · "+configuration.optString("thinkingLevel","off");
-        chatStatusText.setText(!connected ? StatusUi.connectionLabel(this, client.state()) : sessionStatus == SessionStatus.OFFLINE ? "Pi отключён · история доступна" : detail);
+        chatStatusText.setText(!connected ? StatusUi.connectionLabel(this, client.state()) : sessionStatus == SessionStatus.OFFLINE ? "Pi отключён · история доступна" : sessionStatus==SessionStatus.RUNNING?"Работает":"Подключено");
+        ((Button)findViewById(R.id.modelButton)).setText(detail+" ▾");
         findViewById(R.id.modelButton).setContentDescription("Модель и effort: " + detail);
         chatConnectionDot.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 StatusUi.sessionDotColor(this, sessionStatus, connected && sessionStatus != SessionStatus.OFFLINE)));
