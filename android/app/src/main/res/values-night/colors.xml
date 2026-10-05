@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#101612</color>
+    <color name="surface">#19221C</color>
+    <color name="surface_alt">#253028</color>
+    <color name="surface_input">#1E2922</color>
+    <color name="outline">#89978C</color>
+    <color name="outline_soft">#3B4A40</color>
+    <color name="text_primary">#E4ECE2</color>
+    <color name="text_secondary">#B7C7BB</color>
+    <color name="text_hint">#98AB9D</color>
+    <color name="accent">#9FD5B6</color>
+    <color name="on_accent">#073824</color>
+    <color name="accent_pressed">#C7EED7</color>
+    <color name="accent_soft">#234E39</color>
+    <color name="on_accent_soft">#C7EED7</color>
+    <color name="secondary">#CEBDE5</color>
+    <color name="secondary_soft">#41364F</color>
+    <color name="on_secondary_soft">#EBDDFB</color>
+    <color name="bubble_user">#234E39</color>
+    <color name="bubble_assistant">#19221C</color>
+    <color name="bubble_tool">#253028</color>
+    <color name="bubble_custom">#41364F</color>
+    <color name="success">#9FD5B6</color>
+    <color name="warning">#EAC477</color>
+    <color name="danger">#FFB4A9</color>
+    <color name="danger_soft">#5F2825</color>
+    <color name="neutral">#98AB9D</color>
+    <color name="dot_idle">#89978C</color>
+    <color name="dot_ok">#9FD5B6</color>
+    <color name="dot_warn">#EAC477</color>
+    <color name="dot_error">#FFB4A9</color>
+</resources>

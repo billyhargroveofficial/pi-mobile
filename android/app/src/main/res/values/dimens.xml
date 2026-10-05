@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="screen_padding">16dp</dimen>
+    <dimen name="bubble_max_width">300dp</dimen>
+    <dimen name="thumbnail_size">56dp</dimen>
+    <dimen name="message_image_height">180dp</dimen>
+</resources>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/catalogRowRoot" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="64dp" android:layout_marginTop="3dp" android:background="@drawable/bg_row_ripple" android:clickable="true" android:focusable="true" android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="12dp" android:paddingVertical="10dp">
+    <FrameLayout android:layout_width="32dp" android:layout_height="32dp" android:layout_marginEnd="10dp" android:background="@drawable/bg_badge_accent">
+        <ImageView android:layout_width="18dp" android:layout_height="18dp" android:layout_gravity="center" android:src="@drawable/ic_chat" android:tint="@color/on_secondary_soft" android:importantForAccessibility="no"/>
+        <View android:id="@+id/rowStatusDot" android:layout_width="6dp" android:layout_height="6dp" android:layout_gravity="bottom|end" android:background="@drawable/circle_dot" android:backgroundTint="@color/dot_idle"/>
+    </FrameLayout>
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+        <TextView android:id="@+id/rowTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/text_primary" android:textSize="14sp" android:fontFamily="sans-serif-medium" android:maxLines="1" android:ellipsize="end"/>
+        <TextView android:id="@+id/rowSubtitle" style="@style/Pi.Caption" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:maxLines="1" android:ellipsize="middle" android:textSize="11sp"/>
+    </LinearLayout>
+    <TextView android:id="@+id/rowBadge" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:paddingHorizontal="8dp" android:paddingVertical="4dp" android:textSize="10sp" android:textColor="@color/text_secondary" android:background="@drawable/bg_badge_neutral" android:contentDescription="@string/cd_status_label"/>
+    <TextView android:id="@+id/rowBadgeExtra" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
+</LinearLayout>

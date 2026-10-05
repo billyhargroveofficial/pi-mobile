@@ -1,0 +1,81 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'ru.billyhargrove.pimobile'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'ru.billyhargrove.pimobile'
+        minSdk 26
+        targetSdk 35
+        versionCode 2
+        versionName '0.2.0-expressive'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        // No secrets, no tokens, no URLs are baked into BuildConfig.
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+            minifyEnabled false
+        }
+        release {
+            debuggable false
+            minifyEnabled false
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Cleartext is blocked in release by res/xml/network_security_config.xml
+            // and by the debug-only override in src/debug/res/xml/.
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig true
+        viewBinding false
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+
+    packaging {
+        resources {
+            excludes += ['META-INF/*.kotlin_module', 'META-INF/LICENSE*', 'META-INF/DEPENDENCIES']
+        }
+    }
+}
+
+dependencies {
+    implementation 'com.google.android.material:material:1.14.0'
+    implementation 'androidx.dynamicanimation:dynamicanimation:1.1.0'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'androidx.core:core:1.13.1'
+    implementation 'androidx.activity:activity:1.9.3'
+
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+
+    // HTTP event logging. It is installed ONLY when BuildConfig.DEBUG is true,
+    // runs at BASIC level (no bodies) and explicitly redacts Authorization.
+    implementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'
+
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test:rules:1.6.1'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test.uiautomator:uiautomator:2.3.0'
+}

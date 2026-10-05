@@ -1,0 +1,4 @@
+<resources>
+    <plurals name="workspace_count"><item quantity="one">%d пространство</item><item quantity="few">%d пространства</item><item quantity="many">%d пространств</item><item quantity="other">%d пространств</item></plurals>
+    <plurals name="dialog_count"><item quantity="one">%d диалог</item><item quantity="few">%d диалога</item><item quantity="many">%d диалогов</item><item quantity="other">%d диалогов</item></plurals>
+</resources>

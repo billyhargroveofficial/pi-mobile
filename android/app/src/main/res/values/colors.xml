@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mineral / eucalyptus: a deliberate tonal palette, not the stock purple. -->
+    <color name="bg">#F6F7F0</color>
+    <color name="surface">#EFF1E9</color>
+    <color name="surface_alt">#E6EBE1</color>
+    <color name="surface_input">#FFFFFF</color>
+    <color name="outline">#727C73</color>
+    <color name="outline_soft">#D4DCD1</color>
+    <color name="text_primary">#18211B</color>
+    <color name="text_secondary">#4E5D53</color>
+    <color name="text_hint">#657268</color>
+    <color name="accent">#22694E</color>
+    <color name="on_accent">#FFFFFF</color>
+    <color name="accent_pressed">#145139</color>
+    <color name="accent_soft">#C7EED7</color>
+    <color name="on_accent_soft">#123E2C</color>
+    <color name="secondary">#615577</color>
+    <color name="secondary_soft">#EBDDFB</color>
+    <color name="on_secondary_soft">#493A60</color>
+    <color name="bubble_user">#C7EED7</color>
+    <color name="bubble_assistant">#EFF1E9</color>
+    <color name="bubble_tool">#E6EBE1</color>
+    <color name="bubble_custom">#EBDDFB</color>
+    <color name="success">#22694E</color>
+    <color name="warning">#775510</color>
+    <color name="danger">#A53732</color>
+    <color name="danger_soft">#FFDAD5</color>
+    <color name="neutral">#657268</color>
+    <color name="dot_idle">#727C73</color>
+    <color name="dot_ok">#22694E</color>
+    <color name="dot_warn">#775510</color>
+    <color name="dot_error">#A53732</color>
+    <color name="scrim">#99121A15</color>
+</resources>

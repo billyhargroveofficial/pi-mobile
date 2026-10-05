@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Release policy: no cleartext anywhere. TLS is required and the app never
+     accepts arbitrary/untrusted certificates (no custom TrustManager, no
+     hostname verification bypass anywhere in the code base). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

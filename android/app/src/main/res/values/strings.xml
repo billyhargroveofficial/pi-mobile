@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Pi Mobile</string>
+    <string name="chat_title">Сессия</string>
+
+    <!-- Connect form -->
+    <string name="connect_section_title">Подключение к серверу</string>
+    <string name="connect_hint">Адрес сервера</string>
+    <string name="token_hint">Токен доступа</string>
+    <string name="token_hint_existing">Токен доступа (сохранён)</string>
+    <string name="button_connect">Подключиться</string>
+    <string name="button_disconnect">Отключиться</string>
+    <string name="button_check">Проверить сервер</string>
+    <string name="button_settings">Настройки</string>
+    <string name="button_refresh">Обновить</string>
+    <string name="button_send">Отправить</string>
+    <string name="button_stop">Стоп</string>
+    <string name="button_attach">Изображение</string>
+    <string name="button_retry">Повторить вручную</string>
+    <string name="button_restore">В поле ввода</string>
+    <string name="button_back">Назад</string>
+
+    <string name="catalog_section_title">Рабочие пространства и сессии</string>
+    <string name="empty_catalog">Пока нет ни одной сессии. Запустите Pi в терминале Orca — сессия появится здесь.</string>
+    <string name="empty_chat">В этой сессии ещё нет сообщений.</string>
+    <string name="catalog_group_count">%1$d сессий</string>
+
+    <!-- Connection states -->
+    <string name="state_idle">Не подключено</string>
+    <string name="state_connecting">Подключение…</string>
+    <string name="state_connected">Подключено</string>
+    <string name="state_reconnecting">Переподключение…</string>
+    <string name="state_disconnected">Соединение закрыто</string>
+    <string name="state_error">Ошибка</string>
+    <string name="state_detail_format">%1$s · %2$s</string>
+    <string name="catalog_updated_format">Каталог обновлён: %1$s</string>
+    <string name="catalog_updated_never">Каталог ещё не получен</string>
+
+    <!-- Errors -->
+    <string name="error_token_missing">Введите токен доступа.</string>
+    <string name="error_url_missing">Введите адрес сервера.</string>
+    <string name="health_ok">Сервер доступен</string>
+    <string name="health_failed">Сервер недоступен: %1$s</string>
+    <string name="error_empty_message">Введите текст или добавьте изображение.</string>
+    <string name="error_no_connection">Нет соединения с сервером. Текст сохранён.</string>
+    <string name="error_attach_limit">Не более 3 изображений в одном сообщении.</string>
+    <string name="error_attach_failed">Не удалось добавить изображение: %1$s</string>
+    <string name="error_attach_budget">Суммарный размер изображений превышает 10 МБ.</string>
+    <string name="ack_failed_format">Сервер отклонил команду: %1$s</string>
+    <string name="ack_failed_unknown">Сервер отклонил команду.</string>
+    <string name="uncertain_format">Статус неизвестен: %1$s. Команда не отправлена повторно автоматически.</string>
+    <string name="protocol_error_format">Ошибка протокола: %1$s</string>
+    <string name="stop_requested">Запрошена остановка текущего запуска.</string>
+    <string name="stop_unavailable">Нет соединения: остановка недоступна.</string>
+    <string name="retry_warning">Команда отправляется повторно вручную: возможен дубликат.</string>
+
+    <!-- Transcript -->
+    <string name="role_user">Вы</string>
+    <string name="role_assistant">Pi</string>
+    <string name="role_tool">Инструмент</string>
+    <string name="role_custom">Служебное сообщение</string>
+    <string name="role_unknown">Сообщение</string>
+    <string name="tool_name_format">вызов: %1$s</string>
+    <string name="local_state_sending">Отправка…</string>
+    <string name="local_state_accepted">Принято сервером</string>
+    <string name="local_state_failed">Не принято</string>
+    <string name="local_state_uncertain">Статус неизвестен · автоматически не повторяется</string>
+    <string name="read_only_banner">Терминал не подключён к Pi: запись недоступна. Нужно расширение Pi на сервере.</string>
+    <string name="read_only_badge">только чтение</string>
+    <string name="truncated_banner">Показаны только последние сообщения: история усечена сервером.</string>
+    <string name="image_unavailable">Изображение недоступно</string>
+    <string name="image_blocked">Внешний источник заблокирован</string>
+
+    <!-- Composer -->
+    <string name="composer_hint">Сообщение для Pi</string>
+    <string name="behavior_follow_up">Дождаться (follow-up)</string>
+    <string name="behavior_steer">Вмешаться (steer)</string>
+    <string name="attachments_title">Вложения: %1$d из 3</string>
+
+    <string name="session_running">работает</string>
+    <string name="session_idle">ожидает</string>
+    <string name="session_offline">офлайн</string>
+    <string name="session_unknown">неизвестно</string>
+
+    <!-- Accessibility / test hooks -->
+    <string name="cd_connection_status">Состояние соединения</string>
+    <string name="cd_connection_dot">Индикатор соединения</string>
+    <string name="cd_url_input">Поле адреса сервера</string>
+    <string name="cd_token_input">Поле токена доступа</string>
+    <string name="cd_connect_button">Кнопка подключения</string>
+    <string name="cd_disconnect_button">Кнопка отключения</string>
+    <string name="cd_check_button">Кнопка проверки сервера</string>
+    <string name="cd_settings_button">Кнопка настроек подключения</string>
+    <string name="cd_refresh_button">Кнопка обновления каталога</string>
+    <string name="cd_catalog_list">Список рабочих пространств и сессий</string>
+    <string name="cd_session_row">Сессия: %1$s</string>
+    <string name="cd_terminal_row">Терминал без расширения: %1$s</string>
+    <string name="cd_message_list">Список сообщений</string>
+    <string name="cd_composer_input">Поле ввода сообщения</string>
+    <string name="cd_send_button">Кнопка отправки</string>
+    <string name="cd_stop_button">Кнопка остановки</string>
+    <string name="cd_attach_button">Кнопка добавления изображения</string>
+    <string name="cd_attachment_thumb">Вложение %1$d</string>
+    <string name="cd_attachment_remove">Удалить вложение %1$d</string>
+    <string name="cd_behavior_follow_up">Режим ожидания ответа</string>
+    <string name="cd_behavior_steer">Режим вмешательства</string>
+    <string name="cd_back_button">Кнопка назад</string>
+    <string name="cd_message_image">Изображение в сообщении, %1$d</string>
+    <string name="cd_status_label">Метка состояния сессии</string>
+</resources>

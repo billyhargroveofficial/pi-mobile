@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/messageRow"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingLeft="16dp"
+    android:paddingTop="6dp"
+    android:paddingRight="16dp"
+    android:paddingBottom="6dp">
+
+    <LinearLayout
+        android:id="@+id/messageBubble"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/toolToggle" style="@style/Pi.Button.Tiny"
+            android:layout_width="match_parent" android:layout_height="48dp"
+            android:paddingStart="0dp" android:paddingEnd="4dp"
+            android:gravity="start|center_vertical" android:textAllCaps="false"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/messageRoleLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.06" />
+
+        <TextView
+            android:id="@+id/messageText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:maxWidth="@dimen/bubble_max_width"
+            android:textColor="@color/text_primary"
+            android:textIsSelectable="true"
+            android:textSize="15sp"
+            android:lineSpacingExtra="2dp" />
+
+        <LinearLayout
+            android:id="@+id/messageImages"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="vertical" />
+
+        <TextView
+            android:id="@+id/messageToolName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/messageLocalStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textSize="11sp"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/messageLocalActions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/messageRetryButton"
+                style="@style/Pi.Button.Tiny"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/button_retry" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/messageRestoreButton"
+                style="@style/Pi.Button.Tiny"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="8dp"
+                android:text="@string/button_restore" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

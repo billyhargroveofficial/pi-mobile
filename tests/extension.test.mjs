@@ -1,0 +1,28 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,rm} from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {once} from 'node:events';
+import {WebSocket} from 'ws';
+import mobile from '../extension/mobile.ts';
+import {createGateway} from '../server/gateway.mjs';
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+test('extension connects only interactive TUI; sends text/images into same runtime, streams and cleans up',async t=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'pim-ext-'));const g=await createGateway({dataDir:dir,port:0,orca:false});process.env.PI_MOBILE_SOCKET=g.socketPath;
+ const handlers={},calls=[];let idle=true,aborted=false;
+ const pi={on:(n,f)=>handlers[n]=f,registerCommand:()=>{},getSessionName:()=> 'Real live mock',sendUserMessage:(...args)=>calls.push(args)};
+ const ctx={mode:'tui',cwd:'/test',model:{provider:'test',id:'model'},isIdle:()=>idle,abort:()=>{aborted=true},sessionManager:{getSessionId:()=> 'mock-session',getBranch:()=>[{type:'message',id:'a',message:{role:'user',content:'from terminal',timestamp:1}}]},ui:{setStatus:()=>{},notify:()=>{}}};
+ mobile(pi);t.after(async()=>{handlers.session_shutdown({},ctx);delete process.env.PI_MOBILE_SOCKET;await g.close();await rm(dir,{recursive:true,force:true});});
+ handlers.session_start({}, {...ctx,mode:'rpc'});await wait(50);assert.equal(g.catalog().sessions.length,0);
+ handlers.session_start({},ctx);await wait(100);assert.equal(g.catalog().sessions.length,1);
+ const ws=new WebSocket(`ws://127.0.0.1:${g.port}/ws`,{headers:{Authorization:'Bearer '+g.token}});await once(ws,'open');
+ const ack=once(ws,'message');ws.send(JSON.stringify({type:'command',sessionId:'mock-session',requestId:'req-1',command:'prompt',text:'from phone',behavior:'steer'}));await ack;await wait(30);
+ assert.equal(calls.length,1);assert.equal(calls[0][0],'from phone');assert.equal(calls[0][1].deliverAs,'steer');
+ ws.send(JSON.stringify({type:'command',sessionId:'mock-session',requestId:'req-2',command:'abort'}));await wait(30);assert.equal(aborted,true);
+ handlers.agent_start({},ctx);handlers.message_update({message:{role:'assistant',content:[{type:'text',text:'partial response'}],timestamp:2}},ctx);await wait(140);
+ let snap=await(await fetch(`http://127.0.0.1:${g.port}/api/sessions/mock-session`,{headers:{Authorization:'Bearer '+g.token}})).json();assert.equal(snap.status,'running');assert.equal(snap.messages.at(-1).text,'partial response');
+ handlers.message_end({message:{role:'assistant',content:'complete',timestamp:2}},ctx);handlers.agent_settled({},ctx);await wait(140);
+ snap=await(await fetch(`http://127.0.0.1:${g.port}/api/sessions/mock-session`,{headers:{Authorization:'Bearer '+g.token}})).json();assert.equal(snap.status,'idle');assert.equal(snap.messages.length,2);assert.equal(snap.messages.at(-1).text,'complete');
+ ws.close();handlers.session_shutdown({},ctx);await wait(30);assert.equal(g.catalog().sessions[0].connected,false);
+});
