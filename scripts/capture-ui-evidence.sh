@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ADB="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb"
 SERIAL="${1:-emulator-5554}"
+if [[ "$SERIAL" != emulator-* ]]; then echo 'Synthetic evidence must run on an isolated emulator, not a physical device' >&2; exit 2; fi
 OUT="${2:-$ROOT/artifacts/ui-migration}"
 PKG=ru.billyhargrove.pimobile
 FILES="/sdcard/Android/data/$PKG/files"
