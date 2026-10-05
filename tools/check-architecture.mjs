@@ -13,9 +13,13 @@ export function checkAndroidImports(relative,source){
  if(declared!==expected)errors.push(`${relative}: expected package ${expected}, got ${declared||'(missing)'}`);
  const owner=match[1].split('/')[0],allowed=layerRules[owner];
  if(owner==='ui'&&/\bru\.billyhargrove\.pimobile\.PiApp\b/.test(source)&&!['ui/ImageViewer','ui/ArchiveSheet'].includes(match[1]))errors.push(`${relative}: UI must not add a new app-shell dependency`);
- if(!allowed)return errors;
  // Detect explicit imports and qualified references; skip the package declaration.
  const body=source.replace(/^\s*package\s+[\w.]+\s*;?/m,'');
+ if(owner==='features'){
+  const capsule=match[1].split('/')[1];
+  for(const ref of body.matchAll(/\bru\.billyhargrove\.pimobile\.features\.([\w]+)\b/g))if(ref[1]!==capsule)errors.push(`${relative}: ${capsule} must not depend on ${ref[1]} implementation`);
+ }
+ if(!allowed)return [...new Set(errors)];
  const refs=body.matchAll(/\bru\.billyhargrove\.pimobile(?:\.([\w]+))?\b/g);
  for(const ref of refs){const dependency=ref[1]||'(shell)';if(!allowed.has(dependency)&&!['BuildConfig','R'].includes(dependency))errors.push(`${relative}: ${owner} must not depend on ${dependency}`);}
  return [...new Set(errors)];
@@ -41,7 +45,7 @@ export function checkArchitecture(root=project){
   if(variants.length!==1)errors.push(`${owner}: ${base} must have exactly one Java or Kotlin implementation (found ${variants.length})`);
  }
  for(const file of sources){const relative=path.relative(root,file).split(path.sep).join('/'),base=relative.slice((manifest.androidSourceRoot+'/').length).replace(/\.(java|kt)$/,'');
-  const first=base.split('/')[0];if(!assigned.has(base)&&first!=='features')errors.push(`${relative}: no source ownership registered`);
+  const first=base.split('/')[0];if(!assigned.has(base))errors.push(`${relative}: no source ownership registered`);
   if(first==='features'&&!Object.hasOwn(manifest.owners,base.split('/')[1]))errors.push(`${relative}: unknown feature capsule`);
   seen.set(base,(seen.get(base)||0)+1);errors.push(...checkAndroidImports(relative,fs.readFileSync(file,'utf8')));
  }

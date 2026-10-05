@@ -15,6 +15,9 @@ test('core and storage cannot reach back into UI or transport, including qualifi
  assert.deepEqual(checkAndroidImports(core,'package ru.billyhargrove.pimobile.core;\nimport ru.billyhargrove.pimobile.core.ChatMessage;'),[]);
  const ui='android/app/src/main/java/ru/billyhargrove/pimobile/ui/NewScreen.java';
  assert.match(checkAndroidImports(ui,'package ru.billyhargrove.pimobile.ui;\nimport ru.billyhargrove.pimobile.PiApp;')[0],/must not add a new app-shell dependency/);
+ const feature='android/app/src/main/java/ru/billyhargrove/pimobile/features/chat/ChatScreen.kt';
+ assert.match(checkAndroidImports(feature,'package ru.billyhargrove.pimobile.features.chat\nimport ru.billyhargrove.pimobile.features.catalog.CatalogScreen')[0],/chat must not depend on catalog implementation/);
+ assert.deepEqual(checkAndroidImports(feature,'package ru.billyhargrove.pimobile.features.chat\nimport ru.billyhargrove.pimobile.features.chat.ChatState'),[]);
 });
 test('gateway and Pi extension share only contracts, never each other',()=>{
  assert.match(checkLaneImport('server/orchestration.mjs','../extension/mobile-orchestration.ts'),/must not import extension/);
@@ -37,4 +40,7 @@ test('missing owners and dual-language copies fail closed',async t=>{
  assert.match(checkArchitecture(root).join('\n'),/no source ownership registered/);
  await writeFile(path.join(absolute,'core/Unknown.java'),'package ru.billyhargrove.pimobile.core; class Unknown {}');
  assert.match(checkArchitecture(root).join('\n'),/core\/Unknown.java: no source ownership registered/);
+ await mkdir(path.join(absolute,'features/chat'),{recursive:true});
+ await writeFile(path.join(absolute,'features/chat/New.kt'),'package ru.billyhargrove.pimobile.features.chat\nclass New');
+ assert.match(checkArchitecture(root).join('\n'),/features\/chat\/New.kt: no source ownership registered/);
 });
