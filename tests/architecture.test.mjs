@@ -20,6 +20,7 @@ test('gateway and Pi extension share only contracts, never each other',()=>{
  assert.match(checkLaneImport('server/orchestration.mjs','../extension/mobile-orchestration.ts'),/must not import extension/);
  assert.match(checkLaneImport('extension/mobile.ts','../server/gateway.mjs'),/must not import server/);
  assert.match(checkLaneImport('contracts/agent-transcript.mjs','../server/gateway.mjs'),/must not import server/);
+ assert.match(checkLaneImport('contracts/agent-transcript.mjs','node:fs'),/pure contracts must not import external runtime packages/);
  assert.equal(checkLaneImport('server/orchestration.mjs','../contracts/agent-transcript.mjs'),null);
 });
 test('missing owners and dual-language copies fail closed',async t=>{

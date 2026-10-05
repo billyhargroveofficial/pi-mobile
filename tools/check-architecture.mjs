@@ -22,8 +22,8 @@ export function checkAndroidImports(relative,source){
 }
 
 export function checkLaneImport(relative,specifier){
- if(!specifier.startsWith('.'))return null;
  const origin=relative.split('/')[0];if(!['server','extension','contracts'].includes(origin))return null;
+ if(!specifier.startsWith('.'))return origin==='contracts'?`${relative}: pure contracts must not import external runtime packages`:null;
  const target=path.posix.normalize(path.posix.join(path.posix.dirname(relative),specifier)).split('/')[0];
  if(target==='server'&&origin!=='server'||target==='extension'&&origin!=='extension'||origin==='contracts'&&target!=='contracts')return `${relative}: ${origin} must not import ${target}`;
  return null;
