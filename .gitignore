@@ -9,3 +9,5 @@ android/local.properties
 *.keystore
 artifacts/
 .env
+__pycache__/
+*.py[cod]
