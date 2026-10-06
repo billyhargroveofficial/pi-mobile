@@ -24,7 +24,6 @@
       "ui/MarkdownPreview",
       "ui/MarkdownRenderer",
       "ui/ModelSettingsSheet",
-      "ui/StatusUi",
       "ui/TierToggle",
       "ui/PiTranscript"
     ],
@@ -47,8 +46,21 @@
       "ui/PiTheme",
       "ui/ComposeSheet",
       "ui/PiIcons",
-      "ui/PiNavigation"
+      "ui/PiNavigation",
+      "ui/StatusUi"
     ]
+  },
+  "compositionRoots": ["PiApp", "MainActivity", "ChatActivity", "OrchestrationActivity"],
+  "publicFeatureApis": {
+    "catalog": ["MainActivity"],
+    "chat": ["ChatActivity", "ui/PiTranscript"],
+    "orchestration": ["OrchestrationActivity", "ui/OrchestrationEntry"],
+    "voice": ["ui/DictationRecorder"],
+    "updater": ["ui/AppUpdates"]
+  },
+  "platformInteropDependencies": {
+    "ui/ImageViewer": ["PiApp"],
+    "ui/ArchiveSheet": ["PiApp"]
   },
   "platformClasses": {
     "core": [
