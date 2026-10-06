@@ -5,7 +5,7 @@
   "owners": {
     "app-shell": ["PiApp"],
     "catalog": ["MainActivity", "ui/CatalogAdapter", "ui/UsageCards", "ui/ArchiveSheet"],
-    "chat": ["ChatActivity", "ui/MessageAdapter", "ui/ChatLoading", "ui/CompactComposer", "ui/DeliverySheet", "ui/EffortPopup", "ui/EffortSlider", "ui/ImageViewer", "ui/MarkdownPreview", "ui/MarkdownRenderer", "ui/ModelSettingsSheet", "ui/SkillSuggestions", "ui/StatusUi", "ui/TierToggle", "ui/WorkingBadge", "ui/WorkLogView", "ui/WorkSurface", "ui/PiTranscript"],
+    "chat": ["ChatActivity", "features/chat/ChatOutbox", "ui/MessageAdapter", "ui/ChatLoading", "ui/CompactComposer", "ui/DeliverySheet", "ui/EffortPopup", "ui/EffortSlider", "ui/ImageViewer", "ui/MarkdownPreview", "ui/MarkdownRenderer", "ui/ModelSettingsSheet", "ui/SkillSuggestions", "ui/StatusUi", "ui/TierToggle", "ui/WorkingBadge", "ui/WorkLogView", "ui/WorkSurface", "ui/PiTranscript"],
     "orchestration": ["OrchestrationActivity", "ui/OrchestrationEntry"],
     "voice": ["ui/DictationRecorder", "ui/VoiceWaveform"],
     "updater": ["ui/AppUpdates"],
@@ -14,7 +14,7 @@
   "platformClasses": {
     "core": ["Ack", "AckParser", "Catalog", "CatalogParser", "CatalogRow", "ChatMessage", "CommandBuilder", "ConnectionState", "ConversationFrames", "DurationText", "EndpointPolicy", "ExecutionInfo", "ImageGuard", "ImageMimeType", "ImagePayload", "ImageRef", "MathMarkdown", "MediaUrlPolicy", "MessagesParser", "MessagesUpdate", "OrchestrationData", "PayloadCodec", "ReleaseUpdate", "Session", "SessionGrouping", "SessionStatus", "Snapshot", "SnapshotParser", "TerminalInfo", "TextSanitizer", "ToolArguments", "TranscriptReconciler", "TranscriptStore", "Workspace", "WorkTimeline", "TranscriptPresentation"],
     "net": ["ApiException", "AppExecutors", "AttachmentPreparer", "HttpApi", "HttpClients", "MediaLoader", "PiClient"],
-    "store": ["ConversationCache", "PendingMessages", "SecureTokenStore", "SettingsStore"],
+    "store": ["ConversationCache", "PendingMessages", "PendingMessageCodec", "SecureTokenStore", "SettingsStore"],
     "media": ["Attachment", "ImagePreparer"]
   },
   "migrationRule": "Move ownership with code in the same change; Kotlin and Java implementations of one owned class must not coexist. Every platform class also has an explicit owner."

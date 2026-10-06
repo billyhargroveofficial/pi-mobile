@@ -24,9 +24,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import ru.billyhargrove.pimobile.core.Ack;
@@ -36,13 +34,12 @@ import ru.billyhargrove.pimobile.core.CommandBuilder;
 import ru.billyhargrove.pimobile.core.ConnectionState;
 import ru.billyhargrove.pimobile.core.ImageGuard;
 import ru.billyhargrove.pimobile.core.ImagePayload;
-import ru.billyhargrove.pimobile.core.ImageRef;
 import ru.billyhargrove.pimobile.core.MessagesUpdate;
 import ru.billyhargrove.pimobile.core.Session;
 import ru.billyhargrove.pimobile.core.SessionStatus;
 import ru.billyhargrove.pimobile.core.Snapshot;
-import ru.billyhargrove.pimobile.core.TranscriptReconciler;
 import ru.billyhargrove.pimobile.core.TranscriptStore;
+import ru.billyhargrove.pimobile.features.chat.ChatOutbox;
 import ru.billyhargrove.pimobile.media.Attachment;
 import ru.billyhargrove.pimobile.media.ImagePreparer;
 import ru.billyhargrove.pimobile.net.AppExecutors;
@@ -74,27 +71,6 @@ public final class ChatActivity extends AppCompatActivity
         intent.putExtra(EXTRA_TITLE, title);
         intent.putExtra(EXTRA_READ_ONLY, readOnly);
         return intent;
-    }
-
-    /** Everything needed to resend or restore a command. */
-    private static final class Draft {
-        final String text;
-        final List<ImagePayload> payloads;
-        final List<Bitmap> thumbs;
-        final List<String> mimeTypes;
-        final CommandBuilder.Behavior behavior;
-
-        Draft(String text,
-              List<ImagePayload> payloads,
-              List<Bitmap> thumbs,
-              List<String> mimeTypes,
-              CommandBuilder.Behavior behavior) {
-            this.text = text == null ? "" : text;
-            this.payloads = payloads == null ? new ArrayList<ImagePayload>() : new ArrayList<>(payloads);
-            this.thumbs = thumbs == null ? new ArrayList<Bitmap>() : new ArrayList<>(thumbs);
-            this.mimeTypes = mimeTypes == null ? new ArrayList<String>() : new ArrayList<>(mimeTypes);
-            this.behavior = behavior == null ? CommandBuilder.Behavior.FOLLOW_UP : behavior;
-        }
     }
 
     private PiApp app;
@@ -142,10 +118,9 @@ public final class ChatActivity extends AppCompatActivity
     /** Canonical transcript: full snapshots plus incremental {type:'messages'} frames. */
     private final TranscriptStore store = new TranscriptStore();
     private boolean firstRenderDone;
-    private final List<ChatMessage> localMessages = new ArrayList<>();
+    private ChatOutbox outbox;
     private ru.billyhargrove.pimobile.store.PendingMessages pendingMessages;
     private final List<Attachment> attachments = new ArrayList<>();
-    private final Map<String, Draft> drafts = new LinkedHashMap<>();
     private final Set<String> abortRequests = new HashSet<>();
 
     private final ActivityResultLauncher<String[]> imagePicker = registerForActivityResult(
@@ -172,7 +147,8 @@ public final class ChatActivity extends AppCompatActivity
         sessionId = intent.getStringExtra(EXTRA_SESSION_ID) == null ? "" : intent.getStringExtra(EXTRA_SESSION_ID);
         sessionTitle = intent.getStringExtra(EXTRA_TITLE) == null ? "" : intent.getStringExtra(EXTRA_TITLE);
         readOnly = intent.getBooleanExtra(EXTRA_READ_ONLY, false);
-        pendingMessages=new ru.billyhargrove.pimobile.store.PendingMessages(this,settings.baseUrl(),sessionId);localMessages.addAll(pendingMessages.load());
+        pendingMessages=new ru.billyhargrove.pimobile.store.PendingMessages(this,settings.baseUrl(),sessionId);
+        outbox=new ChatOutbox(sessionId,readOnly,client::sendPrompt,pendingMessages.load());
 
         int background=getColor(R.color.bg);findViewById(R.id.messageTopFade).setBackground(new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,new int[]{background,background&0x00ffffff}));
         messageList = findViewById(R.id.messageList);
@@ -377,28 +353,16 @@ public final class ChatActivity extends AppCompatActivity
         String text = composerInput.getText().toString();
         if(handleControl(text.trim()))return;
         if(text.startsWith("$")&&!hasCapability("skills")){toast("Update the Pi bridge when idle to use skills");return;}
-        List<ImagePayload> payloads = new ArrayList<>();
-        List<Bitmap> thumbs = new ArrayList<>();
-        List<String> mimeTypes = new ArrayList<>();
-        for (Attachment attachment : attachments) {
-            payloads.add(attachment.payload());
-            thumbs.add(attachment.thumbnail());
-            mimeTypes.add(attachment.payload().mimeType());
-        }
-        if (text.trim().isEmpty() && payloads.isEmpty()) {
+        ChatOutbox.SendResult result=outbox.send(text,attachments,settings.behavior());
+        if (result.getStatus() == ChatOutbox.SendStatus.EMPTY) {
             toast(getString(R.string.error_empty_message));
             return;
         }
-        CommandBuilder.Behavior behavior = settings.behavior();
-
-        String requestId = client.sendPrompt(sessionId, text, payloads, behavior);
-        if (requestId == null) {
+        if (result.getStatus() != ChatOutbox.SendStatus.WRITTEN) {
             // Nothing was written to the socket: keep the composer exactly as it is.
             toast(getString(R.string.error_no_connection));
             return;
         }
-        drafts.put(requestId, new Draft(text, payloads, thumbs, mimeTypes, behavior));
-        localMessages.add(ChatMessage.local(requestId, attachmentText(text,payloads), localRefs(mimeTypes), ChatMessage.LocalState.SENDING));
         sendButton.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM);
         composerInput.setText("");
         clearAttachments();
@@ -421,46 +385,33 @@ public final class ChatActivity extends AppCompatActivity
 
     @Override
     public void onRetry(ChatMessage message) {
-        Draft draft = drafts.get(message.requestId());
-        if (draft == null) {
+        if(readOnly)return;
+        ChatOutbox.SendResult result=outbox.retry(message.requestId());
+        if (result.getStatus() == ChatOutbox.SendStatus.MISSING_DRAFT) {
             toast("Restore the draft and reattach files. Check whether Pi already accepted the message before retrying.");return;
         }
-        toast(getString(R.string.retry_warning));
-        String requestId = client.sendPrompt(sessionId, draft.text, draft.payloads, draft.behavior);
-        if (requestId == null) {
+        if (result.getStatus() == ChatOutbox.SendStatus.NO_CONNECTION) {
             toast(getString(R.string.error_no_connection));
             return;
         }
-        drafts.put(requestId, new Draft(draft.text, draft.payloads, draft.thumbs, draft.mimeTypes, draft.behavior));
-        localMessages.add(ChatMessage.local(requestId, attachmentText(draft.text,draft.payloads), localRefs(draft.mimeTypes),
-                ChatMessage.LocalState.SENDING));
+        if(result.getStatus()!=ChatOutbox.SendStatus.WRITTEN)return;
+        toast(getString(R.string.retry_warning));
         render();
         scrollToBottom(true);
     }
 
     @Override
     public void onRestore(ChatMessage message) {
-        Draft draft = drafts.remove(message.requestId());
-        if (draft == null) {
-            if(composerInput.getText().length()==0)composerInput.setText(message.text());else{toast("Clear the current draft first");return;}localMessages.remove(message);render();toast("Check the chat before retrying. Select attachments again.");return;
-        }
-        if (composerInput.getText().length() == 0) {
-            composerInput.setText(draft.text);
-            composerInput.setSelection(composerInput.getText().length());
-        }
-        if (!draft.payloads.isEmpty()) {
-            attachments.clear();
-            for (int i = 0; i < draft.payloads.size(); i++) {
-                Bitmap thumb = i < draft.thumbs.size() ? draft.thumbs.get(i) : null;
-                attachments.add(new Attachment(draft.payloads.get(i), thumb, "restored"));
-            }
-            renderAttachments();
-        }
-        int index = indexOfLocal(message.requestId());
-        if (index >= 0) {
-            localMessages.remove(index);
-        }
+        ChatOutbox.RestoreResult result=outbox.restore(message.requestId(),
+                composerInput.getText().length()>0||!attachments.isEmpty()||preparingAttachments);
+        if(result.getStatus()==ChatOutbox.RestoreStatus.COMPOSER_OCCUPIED){toast("Clear the current draft first");return;}
+        if(result.getStatus()!=ChatOutbox.RestoreStatus.RESTORED&&result.getStatus()!=ChatOutbox.RestoreStatus.REATTACH_REQUIRED)return;
+        composerInput.setText(result.getText());
+        composerInput.setSelection(composerInput.getText().length());
+        if(result.getDraft()!=null)attachments.addAll(result.getDraft().getAttachments());
+        renderAttachments();
         render();
+        if(result.getStatus()==ChatOutbox.RestoreStatus.REATTACH_REQUIRED)toast("Check the chat before retrying. Select attachments again.");
     }
 
     // ------------------------------------------------------------ image picker
@@ -606,6 +557,7 @@ public final class ChatActivity extends AppCompatActivity
 
     @Override
     public void onAck(Ack ack) {
+        if(!sessionId.equals(ack.sessionId()))return;
         if(ack.requestId().equals(controlRequest)){controlRequest=null;if(ack.ok()){if(composerInput.getText().toString().trim().equals(controlDraft))composerInput.setText("");if("name".equals(controlKind))toast("Session renamed");}else toast(errorText(ack));controlDraft=null;return;}
         if(ack.requestId().equals(historyRequest)){historyRequest=null;historyButton();if(!ack.ok())toast(errorText(ack));else ensureUserContext();return;}
         if(ack.requestId().equals(documentRequest)){documentRequest=null;if(!ack.ok())toast(errorText(ack));return;}
@@ -622,19 +574,12 @@ public final class ChatActivity extends AppCompatActivity
             }
             return;
         }
-        Draft draft = drafts.get(ack.requestId());
-        int index = indexOfLocal(ack.requestId());
-        if (index < 0) {
-            return;
-        }
-        ChatMessage message = localMessages.get(index);
-        if (ack.ok()) {
-            localMessages.set(index, message.withLocalState(ChatMessage.LocalState.ACCEPTED));
-        } else {
-            localMessages.set(index, message.withLocalState(ChatMessage.LocalState.FAILED));
+        ChatOutbox.AckResult result=outbox.acknowledge(ack);
+        if(!result.getHandled())return;
+        if (!ack.ok()) {
             toast(getString(R.string.ack_failed_format, errorText(ack)));
-            if (draft!=null && composerInput.getText().length() == 0) {
-                composerInput.setText(draft.text);
+            if (result.getRejectedText()!=null && composerInput.getText().length()==0 && attachments.isEmpty() && !preparingAttachments) {
+                composerInput.setText(result.getRejectedText());
                 composerInput.setSelection(composerInput.getText().length());
             }
         }
@@ -643,6 +588,7 @@ public final class ChatActivity extends AppCompatActivity
 
     @Override
     public void onCommandUncertain(String requestId, String sessionId, String reason) {
+        if(!this.sessionId.equals(sessionId))return;
         if(requestId.equals(controlRequest)){controlRequest=null;toast("Command result unknown: "+reason);return;}
         if(requestId.equals(historyRequest)){historyRequest=null;historyButton();toast("History could not be loaded: "+reason);return;}
         if(requestId.equals(documentRequest)){documentRequest=null;toast("File could not be loaded: "+reason);return;}
@@ -656,11 +602,7 @@ public final class ChatActivity extends AppCompatActivity
             toast(getString(R.string.uncertain_format, reason));
             return;
         }
-        int index = indexOfLocal(requestId);
-        if (index < 0) {
-            return;
-        }
-        localMessages.set(index, localMessages.get(index).withLocalState(ChatMessage.LocalState.UNCERTAIN));
+        if(!outbox.uncertain(requestId,sessionId))return;
         toast(getString(R.string.uncertain_format, reason));
         render();
     }
@@ -674,11 +616,7 @@ public final class ChatActivity extends AppCompatActivity
 
     @Override
     public Bitmap thumbnail(String requestId, int index) {
-        Draft draft = drafts.get(requestId);
-        if (draft == null || index < 0 || index >= draft.thumbs.size()) {
-            return null;
-        }
-        return draft.thumbs.get(index);
+        return outbox.thumbnail(requestId,index);
     }
 
     // ----------------------------------------------------------------- helpers
@@ -718,13 +656,10 @@ public final class ChatActivity extends AppCompatActivity
     }
 
     private void render() {
-        List<ChatMessage> merged=TranscriptReconciler.merge(store.transcript(), localMessages);
-        Set<String> visibleLocal=new HashSet<>();for(ChatMessage m:merged)if(m.isLocal())visibleLocal.add(m.requestId());
-        localMessages.removeIf(m->m.localState()!=ChatMessage.LocalState.SENDING&&!visibleLocal.contains(m.requestId()));
-        if(pendingMessages!=null)pendingMessages.save(localMessages);
+        List<ChatMessage> merged=outbox.reconcile(store.transcript());
+        if(pendingMessages!=null)pendingMessages.save(outbox.localReceipts());
         adapter.submit(merged);
         chatEmptyText.setVisibility(adapter.size() == 0 && (loadingUi==null||!loadingUi.isLoading()) ? View.VISIBLE : View.GONE);
-        pruneDrafts();
     }
 
     /**
@@ -741,15 +676,6 @@ public final class ChatActivity extends AppCompatActivity
         if(firstLoad)firstRenderDone=true;
         // RecyclerView already preserves the visible anchor through DiffUtil.
         // Reapplying an old top offset here races pending tail scrolls and IME layout.
-    }
-
-    /** A draft is only needed while its local bubble is still on screen. */
-    private void pruneDrafts() {
-        Set<String> alive = new HashSet<>();
-        for (ChatMessage message : localMessages) {
-            alive.add(message.requestId());
-        }
-        drafts.keySet().retainAll(alive);
     }
 
     private void updateStatusUi() {
@@ -771,24 +697,6 @@ public final class ChatActivity extends AppCompatActivity
         stopButton.setEnabled(online);
         sendButton.setEnabled(online&&!preparingAttachments);
         attachButton.setEnabled(!readOnly&&!preparingAttachments);
-    }
-
-    private int indexOfLocal(String requestId) {
-        for (int i = 0; i < localMessages.size(); i++) {
-            if (requestId.equals(localMessages.get(i).requestId())) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private static String attachmentText(String text,List<ImagePayload> payloads){StringBuilder result=new StringBuilder(text);for(ImagePayload p:payloads)if(p.isFile()){if(result.length()>0)result.append('\n');result.append("📎 ").append(p.fileName());}return result.toString();}
-    private static List<ImageRef> localRefs(List<String> mimeTypes) {
-        List<ImageRef> refs = new ArrayList<>();
-        for (int i = 0; i < mimeTypes.size(); i++) {
-            if(ImageGuard.isAllowedMimeType(mimeTypes.get(i)))refs.add(MessageAdapter.localRef(i, mimeTypes.get(i)));
-        }
-        return refs;
     }
 
     private boolean isNearBottom() {

@@ -21,10 +21,12 @@ test('auth HTTP/WS, private files, origin check, image scoping and bounds',async
 });
 test('commands route to one owner, deduplicate, reject offline and update subscription',async t=>{const {g,base,headers}=await fixture(t);const a=await bridge(g,'a'),b=await bridge(g,'b');let countA=0,countB=0;a.on('data',raw=>{for(const line of String(raw).trim().split('\n')){const c=JSON.parse(line);countA++;a.write(JSON.stringify({type:'ack',requestId:c.requestId,ok:true})+'\n');}});b.on('data',()=>countB++);
  const ws=new WebSocket(base.replace('http','ws')+'/ws',{headers});const next=inbox(ws);await once(ws,'open');await next(x=>x.type==='catalog');ws.send(JSON.stringify({type:'subscribe',sessionId:'a'}));assert.equal((await next(x=>x.type==='snapshot')).sessionId,'a');
- const c={type:'command',command:'prompt',sessionId:'a',requestId:'r1',text:'hello',images:[image]};ws.send(JSON.stringify(c));assert.equal((await next(x=>x.type==='ack')).ok,true);ws.send(JSON.stringify(c));assert.equal((await next(x=>x.type==='ack')).ok,true);assert.equal(countA,1);assert.equal(countB,0);
- ws.send(JSON.stringify({...c,text:'changed'}));assert.equal((await next(x=>x.type==='ack')).ok,false);
+ const c={type:'command',command:'prompt',sessionId:'a',requestId:'r1',text:'hello',images:[image]};ws.send(JSON.stringify(c));
+ const accepted=await next(x=>x.type==='ack');assert.equal(accepted.ok,true);assert.equal(accepted.sessionId,'a');
+ ws.send(JSON.stringify(c));const repeated=await next(x=>x.type==='ack');assert.equal(repeated.ok,true);assert.equal(repeated.sessionId,'a');assert.equal(countA,1);assert.equal(countB,0);
+ ws.send(JSON.stringify({...c,text:'changed'}));const rejected=await next(x=>x.type==='ack');assert.equal(rejected.ok,false);assert.equal(rejected.sessionId,'a');
  a.write(JSON.stringify({type:'snapshot',id:'a',messages:[{role:'assistant',content:'streaming',timestamp:4}],status:'running'})+'\n');assert.equal((await next(x=>x.type==='messages')).messages[0].text,'streaming');
- a.destroy();await next(x=>x.type==='snapshot'&&!x.connected);ws.send(JSON.stringify({...c,requestId:'r2'}));assert.equal((await next(x=>x.type==='ack')).ok,false);ws.close();
+ a.destroy();await next(x=>x.type==='snapshot'&&!x.connected);ws.send(JSON.stringify({...c,requestId:'r2'}));const offline=await next(x=>x.type==='ack');assert.equal(offline.ok,false);assert.equal(offline.sessionId,'a');ws.close();
 });
 test('history pagination cannot exhaust prompt budget and two images reach the owner',async t=>{
  const {g,base,headers}=await fixture(t),owner=await bridge(g,'pages');let captured;

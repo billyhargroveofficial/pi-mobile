@@ -88,10 +88,21 @@ public class OrchestrationUiTest {
    assertTrue("Reopening tools loses the inner reading position: "+anchor,device.wait(Until.hasObject(By.text(anchor)),3000));
    for(int i=0;i<50;i++)lines.put(line("following-"+i,"user","Following context "+i));
    scenario.onActivity(a->a.renderAgent(page,false));idle();
-   UiObject2 transcript=device.findObject(By.res(context.getPackageName(),"orchestrationList"));
-   for(int i=0;i<10&&transcript.scroll(Direction.DOWN,0.9f,600);i++)idle();
+   // UiObject2.scroll gestures at the node's center, where the nested tool log
+   // can consume the gesture and report its own boundary. Use the transcript's
+   // padding gutter and verify the actual destination rather than that return value.
+   for(int i=0;i<20&&!device.hasObject(By.text("Following context 49"));i++){
+    android.graphics.Rect viewport=device.findObject(By.res(context.getPackageName(),"orchestrationList")).getVisibleBounds();
+    int gutter=viewport.left+Math.round(12*density),inset=Math.round(24*density);
+    device.swipe(gutter,viewport.bottom-inset,gutter,viewport.top+inset,40);idle();
+   }
+   assertTrue("Outer transcript did not reach its final message",device.hasObject(By.text("Following context 49")));
    assertFalse("Tool block did not leave the viewport",device.hasObject(By.res(context.getPackageName(),"workLogList")));
-   for(int i=0;i<10&&!device.hasObject(By.text("Read files"));i++){transcript.scroll(Direction.UP,0.9f,600);idle();}
+   for(int i=0;i<20&&!device.hasObject(By.text("Read files"));i++){
+    android.graphics.Rect viewport=device.findObject(By.res(context.getPackageName(),"orchestrationList")).getVisibleBounds();
+    int gutter=viewport.left+Math.round(12*density),inset=Math.round(24*density);
+    device.swipe(gutter,viewport.top+inset,gutter,viewport.bottom-inset,40);idle();
+   }
    device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"compose-tools-returned.png"));
    assertTrue("Reader did not reach the original tool block",device.hasObject(By.text("Read files")));
    assertNotNull(device.wait(Until.findObject(By.res(context.getPackageName(),"workLogList")),3000));
