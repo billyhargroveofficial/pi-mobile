@@ -19,30 +19,27 @@ public final class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.Ho
  public static final String LOCAL_PREFIX="local:";
  public static ImageRef localRef(int index,String mime){return new ImageRef(LOCAL_PREFIX+index,mime);}
  private final MediaLoader loader;private final LocalThumbProvider thumbs;private final Listener listener;
- private final List<ChatMessage> messages=new ArrayList<>();private List<WorkTimeline.Row> rows=new ArrayList<>();
- private final Set<String> collapsed=new HashSet<>(),completed=new HashSet<>(),settledGroups=new HashSet<>();
- private String activeTurn="";private boolean idleKnown;
+ private final TranscriptPresentation presentation=new TranscriptPresentation();
+ private List<WorkTimeline.Row> rows=new ArrayList<>();
+ private final Set<String> collapsed=new HashSet<>();
  private final Set<String> animatedGroups=new HashSet<>();
  private Map<String,List<ChatMessage>> bodies=new HashMap<>();
  private MarkdownRenderer markdown;
  public MessageAdapter(MediaLoader loader,LocalThumbProvider thumbs,Listener listener){this.loader=loader;this.thumbs=thumbs;this.listener=listener;}
  public void close(){if(markdown!=null)markdown.close();}
- public void metadata(JSONObject frame){
-  if(frame.has("activeTurnId"))activeTurn=frame.optString("activeTurnId");
-  if(frame.has("status"))idleKnown="idle".equals(frame.optString("status"))||"offline".equals(frame.optString("status"));
-  JSONArray turns=frame.optJSONArray("turns");if(turns!=null)for(int i=0;i<turns.length();i++){JSONObject t=turns.optJSONObject(i);if(t!=null&&t.optLong("finishedAt")>0)completed.add(t.optString("id"));}
-  rebuild();
- }
- public void sessionStatus(SessionStatus status){idleKnown=status==SessionStatus.IDLE||status==SessionStatus.OFFLINE;rebuild();}
+ public void metadata(JSONObject frame){presentation.metadata(frame);rebuild();}
+ public void sessionStatus(SessionStatus status){presentation.sessionStatus(status);rebuild();}
  public int size(){return rows.size();}
  public String keyAt(int pos){return pos>=0&&pos<rows.size()?rows.get(pos).key:"";}
  public int positionOf(String key){for(int i=0;i<rows.size();i++)if(rows.get(i).key.equals(key))return i;return -1;}
- public void submit(List<ChatMessage> source){messages.clear();String fallback="legacy";for(ChatMessage m:source){if(m.role()==ChatMessage.Role.USER)fallback=m.stableKey();messages.add("legacy".equals(m.turnId())?m.withPresentation(fallback,m.phase(),m.preview(),m.documentPath()):m);}rebuild();}
+ public void submit(List<ChatMessage> source){presentation.submit(source);rebuild();}
  private void rebuild(){
   List<WorkTimeline.Row> old=rows,next=new ArrayList<>();Map<String,List<ChatMessage>> oldBodies=bodies,nextBodies=new HashMap<>();
-  for(ChatMessage m:messages)if(m.role()==ChatMessage.Role.ASSISTANT&&!"work".equals(m.phase())&&!m.turnId().equals(activeTurn))completed.add(m.turnId());
-  for(WorkTimeline.Row row:WorkTimeline.build(messages,Collections.emptySet()))if(row.header&&(idleKnown||completed.contains(row.turn))&&settledGroups.add(row.group)){collapsed.add(row.group);if(!old.isEmpty())animatedGroups.add(row.group);}
-  for(WorkTimeline.Row row:WorkTimeline.build(messages,collapsed)){if(row.work()&&!row.header&&!row.progress){nextBodies.computeIfAbsent(row.group,key->new ArrayList<>()).add(row.message);}else next.add(row);}
+  collapsed.clear();
+  for(TranscriptPresentation.Item item:presentation.items()){
+   WorkTimeline.Row row=item.getRow();next.add(row);
+   if(row.header){if(item.getExpanded())nextBodies.put(row.group,item.getTools());else{collapsed.add(row.group);if(oldBodies.containsKey(row.group))animatedGroups.add(row.group);}}
+  }
   DiffUtil.DiffResult diff=DiffUtil.calculateDiff(new DiffUtil.Callback(){public int getOldListSize(){return old.size();}public int getNewListSize(){return next.size();}public boolean areItemsTheSame(int a,int b){return old.get(a).key.equals(next.get(b).key);}public boolean areContentsTheSame(int a,int b){WorkTimeline.Row x=old.get(a),y=next.get(b);return x.last==y.last&&x.count==y.count&&Objects.equals(x.message,y.message)&&Objects.equals(oldBodies.get(x.group),nextBodies.get(y.group));}});
   bodies=nextBodies;rows=next;diff.dispatchUpdatesTo(this);
  }
@@ -67,7 +64,7 @@ public final class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.Ho
    h.surface.shape(true,true,false);boolean open=!collapsed.contains(row.group);header(h,row);
    boolean animate=animatedGroups.remove(row.group)&&row.group.equals(h.boundGroup);h.boundGroup=row.group;
    if(open)h.log.submit(row.group,bodies.get(row.group));h.log.expanded(open,animate);
-   h.header.setOnClickListener(v->{if(!collapsed.remove(row.group))collapsed.add(row.group);animatedGroups.add(row.group);rebuild();});return;
+   h.header.setOnClickListener(v->{presentation.toggle(row.group);animatedGroups.add(row.group);rebuild();});return;
   }
   ChatMessage m=row.message;
   boolean user=m.role()==ChatMessage.Role.USER;LinearLayout.LayoutParams bp=(LinearLayout.LayoutParams)h.bubble.getLayoutParams();bp.gravity=user?Gravity.END:Gravity.START;h.bubble.setLayoutParams(bp);if(user)h.bubble.setBackground(BubbleColors.background(c,BubbleColors.color(c)));else h.bubble.setBackgroundResource(R.drawable.bg_bubble_assistant);h.text.setTextColor(user?BubbleColors.foreground(BubbleColors.color(c)):c.getColor(R.color.text_primary));

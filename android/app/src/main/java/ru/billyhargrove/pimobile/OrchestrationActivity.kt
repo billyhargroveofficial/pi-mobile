@@ -10,6 +10,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.*
@@ -26,10 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.ComposeView
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -38,10 +36,12 @@ import ru.billyhargrove.pimobile.core.OrchestrationData
 import ru.billyhargrove.pimobile.core.SessionStatus
 import ru.billyhargrove.pimobile.core.SnapshotParser
 import ru.billyhargrove.pimobile.net.AppExecutors
-import ru.billyhargrove.pimobile.ui.MessageAdapter
+import ru.billyhargrove.pimobile.core.TranscriptPresentation
+import ru.billyhargrove.pimobile.ui.PiTranscript
+import ru.billyhargrove.pimobile.ui.PiTheme
 import ru.billyhargrove.pimobile.ui.SystemInsets
 
-/** Read-only orchestration UI. The existing rich transcript renderer is hosted until its own migration. */
+/** Read-only orchestration UI with a shared Compose transcript. No command controls. */
 class OrchestrationActivity : AppCompatActivity() {
     companion object {
         @JvmStatic fun intent(c: Context, session: String, kind: String, id: String, title: String): Intent =
@@ -66,8 +66,10 @@ class OrchestrationActivity : AppCompatActivity() {
     private var olderVisible by mutableStateOf(false)
     private var childrenCount by mutableIntStateOf(0)
     private var rows by mutableStateOf<List<OrchestrationRow>>(emptyList())
-    private var list: RecyclerView? = null
-    private var messages: MessageAdapter? = null
+    private val presentation = TranscriptPresentation()
+    private val transcriptList = LazyListState()
+    private var transcriptItems by mutableStateOf<List<TranscriptPresentation.Item>>(emptyList())
+    private var followTailRevision by mutableIntStateOf(0)
     private var before = 0L
     private var historyInitialized = false
     private var transcriptSource = ""
@@ -81,8 +83,7 @@ class OrchestrationActivity : AppCompatActivity() {
         workflow = intent.getStringExtra("workflow").orEmpty()
         agent = intent.getStringExtra("agent").orEmpty()
         subtitle = if (agent.isEmpty()) "Workflows & agents" else "Agent conversation · read-only"
-        if (agent.isNotEmpty()) messages = MessageAdapter(app.mediaLoader(), null, null)
-        val root = ComposeView(this).apply { setContent { Screen() } }
+        val root = ComposeView(this).apply { setContent { PiTheme { Screen() } } }
         setContentView(root)
         // Compose owns the navigation-bar spacer; do not add a second bottom inset to the host View.
         SystemInsets.apply(this, root, null, null, true)
@@ -100,7 +101,6 @@ class OrchestrationActivity : AppCompatActivity() {
         busy = false
         handler.removeCallbacks(poll)
     }
-    override fun onDestroy() { messages?.close(); super.onDestroy() }
 
     private fun refresh(history: Boolean) {
         if (!started || busy || !app.settings().hasToken()) return
@@ -174,31 +174,26 @@ class OrchestrationActivity : AppCompatActivity() {
         val a = data.optJSONObject("agent")
         if (a == null) { notice = "Agent details unavailable"; return }
         subtitle = OrchestrationData.label(a.optString("status")) + " · " + OrchestrationData.details(a)
-        val adapter = messages ?: return
-        adapter.sessionStatus(if (OrchestrationData.active(a.optString("status"))) SessionStatus.RUNNING else SessionStatus.IDLE)
+        if (agent.isEmpty()) return
         val source = data.optString("source", "live")
-        if (source != transcriptSource) {
-            transcript.clear(); before = 0; historyInitialized = false; transcriptSource = source
+        val sourceChanged = source != transcriptSource
+        if (sourceChanged) {
+            transcript.clear(); presentation.reset(); before = 0; historyInitialized = false; transcriptSource = source
         }
         val hadMessages = transcript.isNotEmpty()
         val page = SnapshotParser.parseMessages(data.optJSONArray("messages"))
-        val view = list
-        val layout = view?.layoutManager as? LinearLayoutManager
-        val nearBottom = view?.canScrollVertically(1) != true
-        val first = layout?.findFirstVisibleItemPosition() ?: -1
-        val anchor = adapter.keyAt(first)
-        val offset = (layout?.findViewByPosition(first)?.top ?: 0) - (view?.paddingTop ?: 0)
+        val nearBottom = !transcriptList.canScrollForward && !transcriptList.isScrollInProgress
         if (history) {
             val merged = LinkedHashMap<String, ChatMessage>()
             for (m in page) merged[m.stableKey()] = m
             merged.putAll(transcript)
             transcript.clear(); transcript.putAll(merged)
         } else for (m in page) transcript[m.stableKey()] = m
-        adapter.submit(ArrayList(transcript.values))
-        if (history) {
-            val pos = adapter.positionOf(anchor)
-            if (pos >= 0) layout?.scrollToPositionWithOffset(pos, offset)
-        } else if (nearBottom && adapter.size() > 0) view?.scrollToPosition(adapter.size() - 1)
+        presentation.sessionStatus(if (OrchestrationData.active(a.optString("status"))) SessionStatus.RUNNING else SessionStatus.IDLE)
+        presentation.submit(ArrayList(transcript.values))
+        transcriptItems = presentation.items()
+        // Stable LazyColumn keys retain the visible message and offset when history prepends.
+        if (!history && (sourceChanged || nearBottom)) followTailRevision++
         if (history || !historyInitialized || !hadMessages) {
             historyInitialized = true
             before = data.optLong("before")
@@ -216,10 +211,9 @@ class OrchestrationActivity : AppCompatActivity() {
     }
 
     @Composable private fun Screen() {
-        val context = LocalContext.current
         val bg = color(R.color.bg)
         Column(Modifier.fillMaxSize().background(bg).semantics { testTagsAsResourceId = true }) {
-            // Compose owns the header, notices, stage cards and navigation. Only transcript remains a View.
+            // Compose owns screen/list geometry; Markwon is a bounded text rendering leaf.
             Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 HeaderAction(R.drawable.ic_back, "Back") { finish() }
@@ -243,19 +237,13 @@ class OrchestrationActivity : AppCompatActivity() {
             if (agent.isEmpty()) LazyColumn(Modifier.fillMaxWidth().weight(1f).testTag("orchestrationList"),
                 contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)) {
                 items(rows, key = { it.kind + ":" + it.data.optString("id") }) { row -> OrchestrationCard(row) }
-            } else AndroidView(
-                factory = {
-                    RecyclerView(context).apply {
-                        id = R.id.orchestrationList
-                        layoutManager = LinearLayoutManager(context)
-                        itemAnimator = null
-                        clipToPadding = false
-                        setPadding(0, dp(8), 0, dp(24))
-                        adapter = messages
-                        list = this
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().weight(1f)
+            } else PiTranscript(
+                items = transcriptItems,
+                state = transcriptList,
+                followTailRevision = followTailRevision,
+                loader = app.mediaLoader(),
+                onToggle = { group -> presentation.toggle(group); transcriptItems = presentation.items() },
+                modifier = Modifier.fillMaxWidth().weight(1f).testTag("$packageName:id/orchestrationList")
             )
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
@@ -328,6 +316,5 @@ class OrchestrationActivity : AppCompatActivity() {
     }
 
     @Composable private fun color(id: Int): Color = Color(LocalContext.current.getColor(id))
-    private fun dp(n: Int) = (n * resources.displayMetrics.density).toInt()
     private data class OrchestrationRow(val kind: String, val data: JSONObject)
 }

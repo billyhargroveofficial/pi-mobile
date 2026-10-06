@@ -15,6 +15,7 @@ import androidx.test.uiautomator.UiDevice;
 import androidx.test.uiautomator.Until;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -23,6 +24,9 @@ import org.junit.runner.RunWith;
 public class ExpressiveUiTest {
     private final Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
     private final UiDevice device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
+    @Before public void isolateSyntheticFixtures() {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> PiApp.get(context).client().disconnect());
+    }
     private Intent chat() { return ChatActivity.intent(context, "ui-test-no-agent", "Проверка дизайна", false); }
     private void idle() { InstrumentationRegistry.getInstrumentation().waitForIdleSync(); device.waitForIdle(); }
 
@@ -365,13 +369,26 @@ public class ExpressiveUiTest {
 
     @Test public void effortThumbActuallyTravelsThroughIntermediatePositions() throws Exception {
         org.junit.Assume.assumeTrue(ru.billyhargrove.pimobile.ui.ExpressiveMotion.enabled());
-        final ru.billyhargrove.pimobile.ui.EffortSlider[] slider={null};final float[] positions=new float[3];
+        final ru.billyhargrove.pimobile.ui.EffortSlider[] slider={null};final float[] positions=new float[2];
+        final java.util.List<Float> frames=new java.util.ArrayList<>();final java.util.concurrent.CountDownLatch sampled=new java.util.concurrent.CountDownLatch(1);
         try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(chat())) {
             org.json.JSONArray levels=new org.json.JSONArray("[\"low\",\"medium\",\"high\"]");
             scenario.onActivity(a->{slider[0]=new ru.billyhargrove.pimobile.ui.EffortSlider(a);slider[0].configure(levels,"low",null);((android.view.ViewGroup)a.findViewById(R.id.chatRoot)).addView(slider[0],new android.view.ViewGroup.LayoutParams(800,160));});idle();
-            scenario.onActivity(a->{positions[0]=whiteThumbCenter(slider[0]);slider[0].setProgress(2);assertEquals("Selection must not teleport",positions[0],whiteThumbCenter(slider[0]),1);});
-            android.os.SystemClock.sleep(90);scenario.onActivity(a->positions[1]=whiteThumbCenter(slider[0]));android.os.SystemClock.sleep(500);scenario.onActivity(a->positions[2]=whiteThumbCenter(slider[0]));
-            assertTrue(java.util.Arrays.toString(positions),positions[1]>positions[0]+5);assertTrue(java.util.Arrays.toString(positions),positions[1]<positions[2]-5);
+            scenario.onActivity(a->{
+                positions[0]=whiteThumbCenter(slider[0]);slider[0].setProgress(2);
+                assertEquals("Selection must not teleport",positions[0],whiteThumbCenter(slider[0]),1);
+                long start=android.os.SystemClock.uptimeMillis();
+                android.view.Choreographer.getInstance().postFrameCallback(new android.view.Choreographer.FrameCallback(){
+                    public void doFrame(long frameTimeNanos){
+                        frames.add(whiteThumbCenter(slider[0]));
+                        if(android.os.SystemClock.uptimeMillis()-start<600)android.view.Choreographer.getInstance().postFrameCallback(this);
+                        else sampled.countDown();
+                    }
+                });
+            });
+            assertTrue("Animation frames were not sampled",sampled.await(5,java.util.concurrent.TimeUnit.SECONDS));
+            scenario.onActivity(a->positions[1]=whiteThumbCenter(slider[0]));
+            assertTrue(frames.toString(),frames.stream().anyMatch(x->x>positions[0]+5&&x<positions[1]-5));
         }
     }
 

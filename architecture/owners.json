@@ -5,14 +5,14 @@
   "owners": {
     "app-shell": ["PiApp"],
     "catalog": ["MainActivity", "ui/CatalogAdapter", "ui/UsageCards", "ui/ArchiveSheet"],
-    "chat": ["ChatActivity", "ui/MessageAdapter", "ui/ChatLoading", "ui/CompactComposer", "ui/DeliverySheet", "ui/EffortPopup", "ui/EffortSlider", "ui/ImageViewer", "ui/MarkdownPreview", "ui/MarkdownRenderer", "ui/ModelSettingsSheet", "ui/SkillSuggestions", "ui/StatusUi", "ui/TierToggle", "ui/WorkingBadge", "ui/WorkLogView", "ui/WorkSurface"],
+    "chat": ["ChatActivity", "ui/MessageAdapter", "ui/ChatLoading", "ui/CompactComposer", "ui/DeliverySheet", "ui/EffortPopup", "ui/EffortSlider", "ui/ImageViewer", "ui/MarkdownPreview", "ui/MarkdownRenderer", "ui/ModelSettingsSheet", "ui/SkillSuggestions", "ui/StatusUi", "ui/TierToggle", "ui/WorkingBadge", "ui/WorkLogView", "ui/WorkSurface", "ui/PiTranscript"],
     "orchestration": ["OrchestrationActivity", "ui/OrchestrationEntry"],
     "voice": ["ui/DictationRecorder", "ui/VoiceWaveform"],
     "updater": ["ui/AppUpdates"],
-    "ui-foundation": ["ui/BubbleColors", "ui/ExpressiveMotion", "ui/FadeTextView", "ui/SwipeAction", "ui/SystemInsets"]
+    "ui-foundation": ["ui/BubbleColors", "ui/ExpressiveMotion", "ui/FadeTextView", "ui/SwipeAction", "ui/SystemInsets", "ui/PiTheme"]
   },
   "platformClasses": {
-    "core": ["Ack", "AckParser", "Catalog", "CatalogParser", "CatalogRow", "ChatMessage", "CommandBuilder", "ConnectionState", "ConversationFrames", "DurationText", "EndpointPolicy", "ExecutionInfo", "ImageGuard", "ImageMimeType", "ImagePayload", "ImageRef", "MathMarkdown", "MediaUrlPolicy", "MessagesParser", "MessagesUpdate", "OrchestrationData", "PayloadCodec", "ReleaseUpdate", "Session", "SessionGrouping", "SessionStatus", "Snapshot", "SnapshotParser", "TerminalInfo", "TextSanitizer", "ToolArguments", "TranscriptReconciler", "TranscriptStore", "Workspace", "WorkTimeline"],
+    "core": ["Ack", "AckParser", "Catalog", "CatalogParser", "CatalogRow", "ChatMessage", "CommandBuilder", "ConnectionState", "ConversationFrames", "DurationText", "EndpointPolicy", "ExecutionInfo", "ImageGuard", "ImageMimeType", "ImagePayload", "ImageRef", "MathMarkdown", "MediaUrlPolicy", "MessagesParser", "MessagesUpdate", "OrchestrationData", "PayloadCodec", "ReleaseUpdate", "Session", "SessionGrouping", "SessionStatus", "Snapshot", "SnapshotParser", "TerminalInfo", "TextSanitizer", "ToolArguments", "TranscriptReconciler", "TranscriptStore", "Workspace", "WorkTimeline", "TranscriptPresentation"],
     "net": ["ApiException", "AppExecutors", "AttachmentPreparer", "HttpApi", "HttpClients", "MediaLoader", "PiClient"],
     "store": ["ConversationCache", "PendingMessages", "SecureTokenStore", "SettingsStore"],
     "media": ["Attachment", "ImagePreparer"]

@@ -2,19 +2,33 @@ package ru.billyhargrove.pimobile;
 import static org.junit.Assert.*;
 import android.content.Context;import android.view.View;import android.graphics.Rect;
 import androidx.test.core.app.ActivityScenario;import androidx.test.ext.junit.runners.AndroidJUnit4;import androidx.test.platform.app.InstrumentationRegistry;import androidx.test.uiautomator.*;
-import org.junit.Test;import org.junit.runner.RunWith;import org.json.*;
+import org.junit.Before;import org.junit.Test;import org.junit.runner.RunWith;import org.json.*;
 import ru.billyhargrove.pimobile.ui.*;
 @RunWith(AndroidJUnit4.class)
 public class DesignPreviewTest {
  private final Context context=InstrumentationRegistry.getInstrumentation().getTargetContext();
  private final UiDevice device=UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
+ @Before public void isolateSyntheticFixtures(){InstrumentationRegistry.getInstrumentation().runOnMainSync(()->PiApp.get(context).client().disconnect());}
  private void idle(){InstrumentationRegistry.getInstrumentation().waitForIdleSync();device.waitForIdle();}
+ private void doubleTap(Rect bounds){
+  long start=android.os.SystemClock.uptimeMillis()-130;
+  for(int tap=0;tap<2;tap++){
+   long down=start+tap*100;
+   for(int action:new int[]{android.view.MotionEvent.ACTION_DOWN,android.view.MotionEvent.ACTION_UP}){
+    long time=down+(action==android.view.MotionEvent.ACTION_UP?30:0);
+    android.view.MotionEvent event=android.view.MotionEvent.obtain(down,time,action,bounds.centerX(),bounds.centerY(),0);
+    event.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);
+    // Fixed touch timestamps keep a 70ms inter-tap gap even if the emulator stalls.
+    assertTrue("Touch injection failed",InstrumentationRegistry.getInstrumentation().getUiAutomation().injectInputEvent(event,false));event.recycle();
+   }
+  }
+  idle();
+ }
  private float imageScale(ActivityScenario<ChatActivity> scenario){float[] value={0};scenario.onActivity(a->{androidx.fragment.app.DialogFragment viewer=(androidx.fragment.app.DialogFragment)a.getSupportFragmentManager().findFragmentByTag("image-viewer");android.widget.ImageView image=viewer.getDialog().findViewById(R.id.zoomImage);float[] matrix=new float[9];image.getImageMatrix().getValues(matrix);value[0]=matrix[android.graphics.Matrix.MSCALE_X];});return value[0];}
  private JSONObject quota(String provider,String window,double used)throws Exception{return new JSONObject().put("provider",provider).put("status","ok").put("updatedAt",System.currentTimeMillis()).put("windows",new JSONArray().put(new JSONObject().put("name",window).put("usedPercent",used).put("resetsAt",System.currentTimeMillis()+4L*86400000)));}
  @Test public void usageAndSettingsHaveHierarchyAndNoOverlap()throws Exception {
   JSONObject cursor=quota("cursor","monthly",100);cursor.getJSONArray("windows").put(new JSONObject().put("name","Cursor Models").put("usedPercent",55)).put(new JSONObject().put("name","Other Models").put("usedPercent",2));
   JSONObject data=new JSONObject().put("providers",new JSONArray().put(quota("codex","weekly",36)).put(cursor).put(new JSONObject().put("provider","grok").put("status","error").put("windows",new JSONArray())));
-  InstrumentationRegistry.getInstrumentation().runOnMainSync(()->PiApp.get(context).client().disconnect());
   try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
    scenario.onActivity(a->{try{a.onConnectionState(ru.billyhargrove.pimobile.core.ConnectionState.CONNECTED,"");java.lang.reflect.Field f=MainActivity.class.getDeclaredField("usageCards");f.setAccessible(true);UsageCards cards=(UsageCards)f.get(a);cards.stop();cards.render(data);a.onCatalog(new ru.billyhargrove.pimobile.core.Catalog(java.util.Collections.singletonList(new ru.billyhargrove.pimobile.core.Workspace("preview","harness-space","/workspace")),java.util.Collections.singletonList(new ru.billyhargrove.pimobile.core.Session("preview-session","Pi Mobile · design pass","/workspace","preview","preview-terminal",true,ru.billyhargrove.pimobile.core.SessionStatus.RUNNING,"openai-codex/gpt-6-astra")),null));}catch(Exception e){throw new AssertionError(e);}});idle();
    scenario.onActivity(a->{Rect first=new Rect(),second=new Rect(),third=new Rect();assertTrue(a.findViewById(R.id.usageCodex).getGlobalVisibleRect(first));assertTrue(a.findViewById(R.id.usageCursor).getGlobalVisibleRect(second));assertTrue(a.findViewById(R.id.usageGrok).getGlobalVisibleRect(third));assertEquals(first.top,second.top);assertEquals(first.bottom,second.bottom);assertTrue(first.right<=second.left);assertTrue(second.right<=third.left);});
@@ -39,12 +53,42 @@ public class DesignPreviewTest {
    scenario.onActivity(a->{android.graphics.Bitmap b=android.graphics.Bitmap.createBitmap(400,900,android.graphics.Bitmap.Config.ARGB_8888);android.graphics.Canvas canvas=new android.graphics.Canvas(b);canvas.drawColor(android.graphics.Color.DKGRAY);android.graphics.Paint paint=new android.graphics.Paint();paint.setColor(android.graphics.Color.WHITE);paint.setTextSize(28);canvas.drawText("Screenshot preview",24,60,paint);for(int i=0;i<8;i++){paint.setColor(i%2==0?0xff315de8:0xff666666);canvas.drawRoundRect(24,100+i*90,376,170+i*90,16,16,paint);}
     androidx.recyclerview.widget.RecyclerView list=new androidx.recyclerview.widget.RecyclerView(new android.view.ContextThemeWrapper(a,R.style.Theme_PiMobile));list.setLayoutManager(new androidx.recyclerview.widget.LinearLayoutManager(a));a.setContentView(list);adapter[0]=new MessageAdapter(PiApp.get(a).mediaLoader(),(id,index)->b,null);list.setAdapter(adapter[0]);adapter[0].submit(java.util.Collections.singletonList(ru.billyhargrove.pimobile.core.ChatMessage.local("image-test","Attached screenshot",java.util.Collections.singletonList(MessageAdapter.localRef(0,"image/png")),ru.billyhargrove.pimobile.core.ChatMessage.LocalState.ACCEPTED)));
    });idle();
-   UiObject2 thumb=device.findObject(By.desc(context.getString(R.string.cd_message_image,1)));assertNotNull(thumb);Rect bounds=thumb.getVisibleBounds();assertTrue(bounds.height()>bounds.width());assertEquals(400f/900f,(float)bounds.width()/bounds.height(),0.02f);device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"attachment-thumbnail.png"));thumb.click();assertTrue(device.wait(Until.hasObject(By.res(context.getPackageName(),"zoomImage")),3000));UiObject2 full=device.findObject(By.res(context.getPackageName(),"zoomImage"));idle();float fit=imageScale(scenario);full.pinchOpen(0.5f);idle();assertTrue(imageScale(scenario)>fit);full.pinchClose(0.8f);idle();Rect screen=full.getVisibleBounds();device.click(screen.centerX(),screen.centerY());android.os.SystemClock.sleep(70);device.click(screen.centerX(),screen.centerY());idle();assertTrue(imageScale(scenario)>fit);device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"attachment-fullscreen.png"));device.findObject(By.res(context.getPackageName(),"closeImageButton")).click();assertTrue(device.wait(Until.gone(By.res(context.getPackageName(),"zoomImage")),3000));scenario.onActivity(a->adapter[0].close());
+   UiObject2 thumb=device.wait(Until.findObject(By.desc(context.getString(R.string.cd_message_image,1))),5000);
+   assertNotNull("Attachment thumbnail did not bind",thumb);
+   Rect bounds=thumb.getVisibleBounds();assertTrue("Portrait thumbnail became square",bounds.height()>bounds.width());
+   assertEquals(400f/900f,(float)bounds.width()/bounds.height(),0.02f);
+   device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"attachment-thumbnail.png"));
+   thumb.click();assertTrue("Wrapped context did not open viewer",device.wait(Until.hasObject(By.res(context.getPackageName(),"zoomImage")),3000));
+   UiObject2 full=device.findObject(By.res(context.getPackageName(),"zoomImage"));idle();float fit=imageScale(scenario);
+   full.pinchOpen(0.5f);idle();float enlarged=imageScale(scenario);assertTrue("Pinch did not increase scale",enlarged>fit);
+   full.pinchClose(0.8f);idle();assertTrue("Pinch close did not reduce scale",imageScale(scenario)<enlarged);
+   Rect screen=full.getVisibleBounds();
+   if(imageScale(scenario)>fit*1.1f){doubleTap(screen);assertEquals("Double tap did not reset zoom",fit,imageScale(scenario),0.01f);android.os.SystemClock.sleep(350);}
+   float beforeDouble=imageScale(scenario);doubleTap(screen);
+   assertTrue("Double tap did not increase scale: fit="+fit+", before="+beforeDouble+", after="+imageScale(scenario),imageScale(scenario)>fit);
+   device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"attachment-fullscreen.png"));
+   device.findObject(By.res(context.getPackageName(),"closeImageButton")).click();
+   assertTrue("Viewer did not close",device.wait(Until.gone(By.res(context.getPackageName(),"zoomImage")),3000));
+   scenario.onActivity(a->adapter[0].close());
   }
  }
  @Test public void microphoneHasLiveWaveformAndPrivateFile()throws Exception {
   InstrumentationRegistry.getInstrumentation().getUiAutomation().grantRuntimePermission(context.getPackageName(),android.Manifest.permission.RECORD_AUDIO);
   final DictationRecorder[] recorder={null};final java.io.File[] result={null};final String[] error={null};java.util.concurrent.CountDownLatch done=new java.util.concurrent.CountDownLatch(1);
-  try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(ChatActivity.intent(context,"voice-preview","Voice preview",false))){scenario.onActivity(a->recorder[0]=new DictationRecorder(a,file->{result[0]=file;done.countDown();},message->{error[0]=message;done.countDown();}));assertTrue(device.wait(Until.hasObject(By.res(context.getPackageName(),"voiceWaveform")),5000));assertTrue(device.wait(Until.hasObject(By.text("00:02")),5000));device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"voice-recording.png"));device.findObject(By.text("Finish")).click();assertTrue(done.await(5,java.util.concurrent.TimeUnit.SECONDS));assertNull(error[0]);assertNotNull(result[0]);assertTrue(result[0].length()>=32000);assertTrue(result[0].getCanonicalPath().startsWith(context.getCacheDir().getCanonicalPath()));assertEquals(600,DictationRecorder.MAX_SECONDS);result[0].delete();}
+  try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(ChatActivity.intent(context,"voice-preview","Voice preview",false))){
+   try{
+    scenario.onActivity(a->recorder[0]=new DictationRecorder(a,file->{result[0]=file;done.countDown();},message->{error[0]=message;done.countDown();}));
+    assertTrue("Microphone waveform did not appear",device.wait(Until.hasObject(By.res(context.getPackageName(),"voiceWaveform")),5000));
+    assertTrue("PCM recording did not reach two seconds",device.wait(Until.hasObject(By.text(java.util.regex.Pattern.compile("00:(0[2-9]|[1-5][0-9])|0[1-9]:[0-5][0-9]"))),5000));
+    device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"voice-recording.png"));
+    device.findObject(By.text("Finish")).click();
+    assertTrue("Recording did not finish",done.await(5,java.util.concurrent.TimeUnit.SECONDS));
+    assertNull(error[0]);assertNotNull(result[0]);assertTrue(result[0].length()>=32000);
+    assertTrue(result[0].getCanonicalPath().startsWith(context.getCacheDir().getCanonicalPath()));assertEquals(600,DictationRecorder.MAX_SECONDS);
+   }finally{
+    scenario.onActivity(a->{if(recorder[0]!=null)recorder[0].cancel();});
+    if(result[0]!=null)result[0].delete();
+   }
+  }
  }
 }
