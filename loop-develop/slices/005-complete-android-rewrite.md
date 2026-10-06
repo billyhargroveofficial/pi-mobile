@@ -48,7 +48,7 @@ Pi features or false account/model/status/usage data.
   Node/architecture/baseline + JVM/build + API35 UI + font/theme/motion matrix +
   read-only HTTPS/WSS; hardware-GPU emulator, short sessions, stop afterward.
 - [x] Inspect before/after visuals and record device/upgrade limitations.
-- [ ] Commit/publish0.6.004 and verify GitHub/Telegram delivery.
+- [x] Commit/publish0.6.004 and verify GitHub/Telegram delivery.
 - [ ] Physical-device acceptance for the full goal; phone absent. Bounded host
   ownership is checked; do not claim physical parity from emulator evidence.
 
@@ -177,3 +177,13 @@ retains private settings/outbox and1 cache file and connects with the saved
 Keystore token in both versions. Hardware emulator is stopped. See
 [release0.6.004 evidence](../../docs/release-0.6.004.md). Physical phone is absent;
 release is separately authorized, whole-goal acceptance is still open.
+
+### Publication and delivery
+
+Commit8f08a5a and tagv0.6.004 pushed. Stable latest GitHub release contains the
+verified APK and SHA256SUMS.txt; API digest and downloaded bytes both match the
+installed artifact. APK sent once to the confirmed Парилка228 Zoo Prison chat;
+Telegram document filename/size read back. The connector temporarily received
+only the requested artifact directory through supported CLI Roots; its exact
+original LaunchAgent was restored and get_me/Saved Messages checks pass. No
+Pi/Orca/gateway service was changed. Physical-device acceptance remains open.

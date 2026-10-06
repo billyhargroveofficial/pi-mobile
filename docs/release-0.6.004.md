@@ -31,7 +31,7 @@
 | APK SHA256 | `b6967e899583aa065c71564eee41d96956226d36f1f0d7af362ec682e557617e` |
 | Signing certificate SHA256 | `86c0c25a38f5c9231196fb5b647cda6ed8938eb8a0c392dcd00a31a74a6b52a4` |
 
-Подпись точно совпадает с0.6.003; APK не содержит приватного device-token. Это персональная debug-сборка с прежней подписью, не Play Store. Updater выбирает стабильный latest GitHub-релиз и сверяет digest/package/versionCode/certificate; у APK точное ожидаемое имя. Публикация должна содержать этот APK и `SHA256SUMS.txt`; после загрузки сверить GitHub asset digest и повторно скачанный файл.
+Подпись точно совпадает с0.6.003; APK не содержит приватного device-token. Это персональная debug-сборка с прежней подписью, не Play Store. Updater выбирает стабильный latest GitHub-релиз и сверяет digest/package/versionCode/certificate; у APK точное ожидаемое имя. [Стабильный latest-релиз v0.6.004](https://github.com/billyhargroveofficial/pi-mobile/releases/tag/v0.6.004) опубликован из commit `8f08a5a`. GitHub asset digest, повторно скачанный APK и `SHA256SUMS.txt` точно совпадают с проверенным артефактом. Этот APK отправлен в подтверждённый чат «Парилка228 Zoo Prison»; имя и размер документа прочитаны обратно из Telegram.
 
 ## Остаётся физическая приёмка
 
