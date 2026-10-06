@@ -12,8 +12,8 @@ android {
         applicationId 'ru.billyhargrove.pimobile'
         minSdk 26
         targetSdk 35
-        versionCode 10
-        versionName '0.6.003'
+        versionCode 11
+        versionName '0.6.004'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         // No secrets, no tokens, no URLs are baked into BuildConfig.
     }
@@ -46,10 +46,11 @@ android {
 
     kotlinOptions {
         jvmTarget = '17'
+        freeCompilerArgs += ['-Xjvm-default=all']
     }
 
     lint {
-        abortOnError false
+        abortOnError true
         checkReleaseBuilds false
     }
 

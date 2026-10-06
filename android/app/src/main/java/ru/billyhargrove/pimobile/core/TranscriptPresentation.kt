@@ -70,7 +70,7 @@ class TranscriptPresentation {
         }
         val tools = timeline.filter { it.work() && !it.header && !it.progress }.groupBy { it.group }
         items = timeline.filter { !it.work() || it.header || it.progress }.map { row ->
-            Item(row, tools[row.group].orEmpty().map { it.message }, row.group !in collapsed)
+            Item(row, tools[row.group].orEmpty().mapNotNull { it.message }, row.group !in collapsed)
         }
     }
 }

@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -46,7 +47,15 @@ import ru.billyhargrove.pimobile.core.ToolArguments
 import ru.billyhargrove.pimobile.core.TranscriptPresentation
 import ru.billyhargrove.pimobile.net.MediaLoader
 
-/** Read-only rendering contract; callers own fetching, history, state and navigation. */
+/** Optional main-chat actions. Omitting them leaves agent inspection read-only. */
+class TranscriptActions(
+    val thumbnail: (String, Int) -> Bitmap?,
+    val retry: (ChatMessage) -> Unit,
+    val restore: (ChatMessage) -> Unit,
+    val document: (String) -> Unit
+)
+
+/** Callers own fetching, history, state and navigation. No transport or commands in rendering. */
 @Composable
 fun PiTranscript(
     items: List<TranscriptPresentation.Item>,
@@ -54,21 +63,25 @@ fun PiTranscript(
     followTailRevision: Int,
     loader: MediaLoader,
     onToggle: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    actions: TranscriptActions? = null,
+    contentPadding: PaddingValues = PaddingValues(top = 8.dp, bottom = 24.dp),
+    followTailEnabled: Boolean = true
 ) {
     val context = LocalContext.current
-    val markdown = remember(context) { MarkdownRenderer(context) { /* No document control in agent inspection. */ } }
+    val currentActions by rememberUpdatedState(actions)
+    val markdown = remember(context) { MarkdownRenderer(context) { currentActions?.document?.invoke(it) } }
     DisposableEffect(markdown) { onDispose { markdown.close() } }
     LaunchedEffect(followTailRevision) {
-        if (items.isNotEmpty() && !state.isScrollInProgress) {
+        if (followTailEnabled && items.isNotEmpty() && !state.isScrollInProgress) {
             state.scrollToItem(items.lastIndex)
             state.scrollBy(Float.MAX_VALUE)
         }
     }
-    LazyColumn(modifier, state = state, contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)) {
+    LazyColumn(modifier, state = state, contentPadding = contentPadding) {
         items(items, key = { it.row.key }, contentType = { if (it.row.header) "tools" else "message" }) { item ->
             if (item.row.header) ToolGroup(item, markdown) { onToggle(item.row.group) }
-            else MessageBubble(item.row.message, markdown, loader)
+            else item.row.message?.let { MessageBubble(it, markdown, loader, actions) }
         }
     }
 }
@@ -173,7 +186,7 @@ private fun ToolGlyph(tool: String, error: Boolean) {
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage, markdown: MarkdownRenderer, loader: MediaLoader) {
+private fun MessageBubble(message: ChatMessage, markdown: MarkdownRenderer, loader: MediaLoader, actions: TranscriptActions?) {
     val context = LocalContext.current
     val user = message.role() == ChatMessage.Role.USER
     val bubble = if (user) Color(BubbleColors.color(context)) else colorResource(R.color.bubble_assistant)
@@ -187,10 +200,23 @@ private fun MessageBubble(message: ChatMessage, markdown: MarkdownRenderer, load
                 else NativeMarkdown(message.text(), markdown, ink)
             }
             message.images().take(3).forEachIndexed { index, image ->
-                TranscriptImage(image.url(), index, loader, minOf(240.dp, maxBubbleWidth - 24.dp))
+                val local = if (image.url().startsWith("local:")) actions?.thumbnail?.invoke(
+                    message.requestId(), image.url().substringAfter(':').toIntOrNull() ?: index) else null
+                TranscriptImage(image.url(), index, loader, minOf(240.dp, maxBubbleWidth - 24.dp), local)
             }
-            if (user) Text("✓✓", color = ink, fontSize = 11.sp,
+            if (user && message.localState() in setOf(ChatMessage.LocalState.NONE, ChatMessage.LocalState.ACCEPTED)) Text("✓✓", color = ink, fontSize = 11.sp,
                 modifier = Modifier.align(Alignment.End).padding(top = 6.dp).semantics { contentDescription = "Accepted by Pi" })
+            else if (message.isLocal) {
+                Text(StatusUi.localStateLabel(context, message.localState()), fontSize = 11.sp,
+                    color = Color(StatusUi.localStateColor(context, message.localState())),
+                    modifier = Modifier.align(Alignment.End).padding(top = 6.dp))
+                if (actions != null && message.localState() in setOf(ChatMessage.LocalState.FAILED, ChatMessage.LocalState.UNCERTAIN)) {
+                    Row {
+                        TextButton(onClick = { actions.retry(message) }) { Text("Retry manually", fontSize = 12.sp) }
+                        TextButton(onClick = { actions.restore(message) }) { Text("Restore", fontSize = 12.sp) }
+                    }
+                }
+            }
         }
     }
 }
@@ -208,25 +234,25 @@ private fun NativeMarkdown(text: String, markdown: MarkdownRenderer, ink: Color,
 }
 
 @Composable
-private fun TranscriptImage(url: String, index: Int, loader: MediaLoader, maxWidth: androidx.compose.ui.unit.Dp) {
+private fun TranscriptImage(url: String, index: Int, loader: MediaLoader, maxWidth: androidx.compose.ui.unit.Dp, localBitmap: Bitmap? = null) {
     val context = LocalContext.current
     var bitmap by remember(url) { mutableStateOf<Bitmap?>(null) }
     var error by remember(url) { mutableStateOf("") }
     DisposableEffect(url, loader) {
         var active = true
-        loader.load(url, object : MediaLoader.Callback {
+        if (!url.startsWith("local:")) loader.load(url, object : MediaLoader.Callback {
             override fun onLoaded(resolvedUrl: String, value: Bitmap) { if (active) bitmap = value }
             override fun onFailed(resolvedUrl: String, message: String) { if (active) error = message }
         })
         onDispose { active = false }
     }
-    val loaded = bitmap
+    val loaded = localBitmap ?: bitmap
     if (loaded != null) {
         val aspect = loaded.width.toFloat() / loaded.height
         val width = minOf(maxWidth, 280.dp * aspect)
         Image(loaded.asImageBitmap(), context.getString(R.string.cd_message_image, index + 1),
             modifier = Modifier.padding(top = 6.dp, bottom = 8.dp).size(width, width / aspect)
                 .clip(RoundedCornerShape(16.dp)).clickable { ImageViewer.show(context, url, loaded) })
-    } else Text(if (error.isEmpty()) "Loading image…" else "Image unavailable: $error",
+    } else Text(if (url.startsWith("local:")) "Select attachment again to restore preview" else if (error.isEmpty()) "Loading image…" else "Image unavailable: $error",
         color = colorResource(R.color.text_secondary), fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
 }

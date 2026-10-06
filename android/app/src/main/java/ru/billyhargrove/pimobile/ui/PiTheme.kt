@@ -2,6 +2,7 @@ package ru.billyhargrove.pimobile.ui
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -23,6 +24,7 @@ fun PiTheme(content: @Composable () -> Unit) {
     )) {
         // Existing screens choose their text sizes. Do not inherit bodyLarge line-height
         // and tracking into explicit 11–19sp baseline labels during incremental migration.
-        CompositionLocalProvider(LocalTextStyle provides TextStyle.Default, content = content)
+        CompositionLocalProvider(LocalTextStyle provides TextStyle.Default,
+            LocalContentColor provides colorResource(R.color.text_primary), content = content)
     }
 }

@@ -1,7 +1,7 @@
-# Chat command state
+# Chat session and Compose screen
 
 `ChatOutbox.kt` owns one session's local receipts and retained prompt drafts.
-ChatActivity and the future Compose screen must use this owner; do not add a
+ChatSession and ChatScreen use this owner; do not add a
 second optimistic-message implementation to a composable.
 
 ## Public boundary
@@ -21,9 +21,26 @@ second optimistic-message implementation to a composable.
   the original private host/session preference key; PendingMessageCodec accepts
   old Java records and preserves image source indices in new records.
 
-Mutations run on the Android main thread. This feature owns no connection,
-permissions, navigation, Pi runtime, token or Markdown/media rendering. Native
-chat/composer UI remains until its separately verified Compose slice.
+`ChatSession.kt` owns canonical transcript and presentation state, scoped
+ACK/control/configuration/document/history requests, epoch guards, persisted
+viewport requests and follow-tail. Its injected `Transport` has no credentials;
+the Kotlin Activity composes it with PiClient. Foreign/unknown frames cannot
+consume requests. History prepends stable keys without requesting a tail jump;
+cached snapshots cannot fetch pages or replay prompts. A model change requires
+an idle session; all mutations reject read-only inspection.
 
-Checks: ChatOutboxTest, PendingMessageCodecTest, ChatOutboxUiTest;
+`ChatScreen.kt` owns Compose header, banners/loading, transcript, attachment
+chips, skills, composer and delivery selection. Screen callbacks request platform
+navigation, picker/permissions/dictation and bounded model/document interop.
+The Activity preserves unsent text/caret on recreation. PiTranscript's default
+contract stays read-only; main-chat actions are injected callbacks to ChatSession.
+The shared PiNavigation drawer displays the live catalog and calls the shell for
+navigation. Opening/closing it keeps the same session and unsent composer.
+The old Java screen/widgets/adapter/XML have been removed.
+
+Mutations run on the Android main thread. This feature owns no connection,
+permissions, Pi runtime or token. No second Activity/Composable outbox is allowed.
+
+Checks: ChatSessionTest, ChatOutboxTest, PendingMessageCodecTest, ChatOutboxUiTest,
+ExpressiveUiTest, DesignPreviewTest and EffortInteractionUiTest;
 `npm run quality`; Android JVM/build and synthetic API35 instrumentation.

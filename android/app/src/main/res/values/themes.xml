@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Pi" />
-    <style name="Theme.PiMobile" parent="Theme.Material3Expressive.DayNight.NoActionBar">
+    <style name="Theme.PiMobile" parent="Theme.PiMobile.Base" />
+    <style name="Theme.PiMobile.Base" parent="Theme.Material3Expressive.DayNight.NoActionBar">
         <item name="materialButtonStyle">@style/Pi.Button</item>
         <item name="buttonBarPositiveButtonStyle">@style/Pi.Button.Tiny</item>
         <item name="buttonBarNegativeButtonStyle">@style/Pi.Button.Tiny</item>
@@ -33,7 +34,6 @@
         <item name="android:navigationBarColor">@color/bg</item>
         <item name="android:windowActivityTransitions">true</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowLightNavigationBar">true</item>
     </style>
     <style name="Pi.SectionTitle">
         <item name="android:textColor">@color/text_primary</item>

@@ -8,8 +8,8 @@ import ru.billyhargrove.pimobile.ui.*;
 public class DesignPreviewTest {
  private final Context context=InstrumentationRegistry.getInstrumentation().getTargetContext();
  private final UiDevice device=UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
- @Before public void isolateSyntheticFixtures(){InstrumentationRegistry.getInstrumentation().runOnMainSync(()->PiApp.get(context).client().disconnect());}
- private void idle(){InstrumentationRegistry.getInstrumentation().waitForIdleSync();device.waitForIdle();}
+ @Before public void isolateSyntheticFixtures(){androidx.test.uiautomator.Configurator.getInstance().setWaitForIdleTimeout(1000);InstrumentationRegistry.getInstrumentation().runOnMainSync(()->PiApp.get(context).client().disconnect());}
+ private void idle(){InstrumentationRegistry.getInstrumentation().waitForIdleSync();device.waitForIdle(1000);}
  private void doubleTap(Rect bounds){
   long start=android.os.SystemClock.uptimeMillis()-130;
   for(int tap=0;tap<2;tap++){
@@ -25,33 +25,50 @@ public class DesignPreviewTest {
   idle();
  }
  private float imageScale(ActivityScenario<ChatActivity> scenario){float[] value={0};scenario.onActivity(a->{androidx.fragment.app.DialogFragment viewer=(androidx.fragment.app.DialogFragment)a.getSupportFragmentManager().findFragmentByTag("image-viewer");android.widget.ImageView image=viewer.getDialog().findViewById(R.id.zoomImage);float[] matrix=new float[9];image.getImageMatrix().getValues(matrix);value[0]=matrix[android.graphics.Matrix.MSCALE_X];});return value[0];}
+ private UiObject2 usageColumn(String id,boolean forward){
+  float scale=context.getResources().getConfiguration().fontScale,density=context.getResources().getDisplayMetrics().density;
+  Rect prior=new Rect();int stable=0;
+  for(int i=0;i<30;i++){
+   try{
+   UiObject2 item=device.findObject(By.res(context.getPackageName(),id));
+   if(item!=null){Rect bounds=item.getVisibleBounds();if(scale<=1.25f||bounds.width()>=156*scale/1.35f*density-3){stable=bounds.equals(prior)?stable+1:0;prior=bounds;if(stable>=2)return item;android.os.SystemClock.sleep(100);continue;}forward=bounds.left>16*density+3;}
+   UiObject2 anchor=null;for(String name:new String[]{"usageCodex","usageCursor","usageGrok"}){anchor=device.findObject(By.res(context.getPackageName(),name));if(anchor!=null)break;}
+   assertNotNull("No visible usage column",anchor);Rect bounds=anchor.getVisibleBounds();int left=(int)(48*density),right=device.getDisplayWidth()-left,distance=(right-left)/4;
+   device.swipe(forward?right-20:left+20,bounds.centerY(),forward?right-20-distance:left+20+distance,bounds.centerY(),90);idle();stable=0;
+   }catch(StaleObjectException ignored){android.os.SystemClock.sleep(100);}
+  }
+  fail("Usage column is not reachable: "+id);return null;
+ }
  private JSONObject quota(String provider,String window,double used)throws Exception{return new JSONObject().put("provider",provider).put("status","ok").put("updatedAt",System.currentTimeMillis()).put("windows",new JSONArray().put(new JSONObject().put("name",window).put("usedPercent",used).put("resetsAt",System.currentTimeMillis()+4L*86400000)));}
  @Test public void usageAndSettingsHaveHierarchyAndNoOverlap()throws Exception {
   JSONObject cursor=quota("cursor","monthly",100);cursor.getJSONArray("windows").put(new JSONObject().put("name","Cursor Models").put("usedPercent",55)).put(new JSONObject().put("name","Other Models").put("usedPercent",2));
   JSONObject data=new JSONObject().put("providers",new JSONArray().put(quota("codex","weekly",36)).put(cursor).put(new JSONObject().put("provider","grok").put("status","error").put("windows",new JSONArray())));
   try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
-   scenario.onActivity(a->{try{a.onConnectionState(ru.billyhargrove.pimobile.core.ConnectionState.CONNECTED,"");java.lang.reflect.Field f=MainActivity.class.getDeclaredField("usageCards");f.setAccessible(true);UsageCards cards=(UsageCards)f.get(a);cards.stop();cards.render(data);a.onCatalog(new ru.billyhargrove.pimobile.core.Catalog(java.util.Collections.singletonList(new ru.billyhargrove.pimobile.core.Workspace("preview","harness-space","/workspace")),java.util.Collections.singletonList(new ru.billyhargrove.pimobile.core.Session("preview-session","Pi Mobile · design pass","/workspace","preview","preview-terminal",true,ru.billyhargrove.pimobile.core.SessionStatus.RUNNING,"openai-codex/gpt-6-astra")),null));}catch(Exception e){throw new AssertionError(e);}});idle();
-   scenario.onActivity(a->{Rect first=new Rect(),second=new Rect(),third=new Rect();assertTrue(a.findViewById(R.id.usageCodex).getGlobalVisibleRect(first));assertTrue(a.findViewById(R.id.usageCursor).getGlobalVisibleRect(second));assertTrue(a.findViewById(R.id.usageGrok).getGlobalVisibleRect(third));assertEquals(first.top,second.top);assertEquals(first.bottom,second.bottom);assertTrue(first.right<=second.left);assertTrue(second.right<=third.left);});
+   scenario.onActivity(a->{CatalogFixture.install(a,new ru.billyhargrove.pimobile.core.Catalog(java.util.Collections.singletonList(new ru.billyhargrove.pimobile.core.Workspace("preview","harness-space","/workspace")),java.util.Collections.singletonList(new ru.billyhargrove.pimobile.core.Session("preview-session","Pi Mobile · design pass","/workspace","preview","preview-terminal",true,ru.billyhargrove.pimobile.core.SessionStatus.RUNNING,"openai-codex/gpt-6-astra")),null));CatalogFixture.usage(a).render(data);});idle();
+   assertTrue(device.wait(Until.hasObject(By.res(context.getPackageName(),"usageCodex")),5000));
+   Rect first=usageColumn("usageCodex",true).getVisibleBounds(),second=usageColumn("usageCursor",true).getVisibleBounds(),third=usageColumn("usageGrok",true).getVisibleBounds();assertEquals(first.top,second.top);assertEquals(first.bottom,second.bottom);assertEquals(first.top,third.top);assertEquals(first.bottom,third.bottom);if(context.getResources().getConfiguration().fontScale<=1.25f){assertTrue(first.right<=second.left);assertTrue(second.right<=third.left);}
    device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"usage-redesign.png"));
-   device.findObject(By.res(context.getPackageName(),"usageCursor")).click();assertTrue(device.wait(Until.hasObject(By.text("Cursor usage")),3000));assertTrue(device.hasObject(By.text("Cursor Models")));device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"usage-details.png"));device.pressBack();idle();
-   device.findObject(By.res(context.getPackageName(),"settingsButton")).click();assertTrue(device.wait(Until.hasObject(By.res(context.getPackageName(),"bubbleColorSettings")),3000));idle();
-   Rect update=device.findObject(By.res(context.getPackageName(),"checkUpdates")).getVisibleBounds(),bubble=device.findObject(By.res(context.getPackageName(),"bubbleColorSettings")).getVisibleBounds();assertTrue(update.bottom<bubble.top);assertTrue(update.height()>40);assertTrue(bubble.height()>40);device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"settings-redesign.png"));device.pressBack();
+   usageColumn("usageCursor",false).click();assertTrue(device.wait(Until.hasObject(By.text("Cursor usage")),3000));assertTrue(device.hasObject(By.text("Cursor Models")));device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"usage-details.png"));device.pressBack();idle();
+   device.findObject(By.res(context.getPackageName(),"settingsButton")).click();assertTrue(device.wait(Until.hasObject(By.res(context.getPackageName(),"connectPanel")),3000));
+   for(int i=0;i<6&&(!device.hasObject(By.res(context.getPackageName(),"bubbleColorSettings"))||!device.hasObject(By.res(context.getPackageName(),"checkUpdates")));i++){Rect bounds=device.findObject(By.res(context.getPackageName(),"connectPanel")).getVisibleBounds();device.swipe(bounds.centerX(),bounds.bottom-40,bounds.centerX(),bounds.top+40,30);idle();}
+   assertTrue(device.hasObject(By.res(context.getPackageName(),"bubbleColorSettings")));assertTrue(device.hasObject(By.res(context.getPackageName(),"checkUpdates")));idle();
+   Rect update=device.findObject(By.res(context.getPackageName(),"checkUpdates")).getVisibleBounds(),bubble=device.findObject(By.res(context.getPackageName(),"bubbleColorSettings")).getVisibleBounds();assertTrue("Settings rows must not overlap",update.bottom<=bubble.top||bubble.bottom<=update.top);assertTrue(update.height()>40);assertTrue(bubble.height()>40);device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"settings-redesign.png"));device.pressBack();
   }
  }
  @Test public void tierPickerIsExplicitAndDoesNotSendUntilApply()throws Exception {
   JSONObject config=new JSONObject("{\"model\":\"openai-codex/gpt-6-astra\",\"thinkingLevel\":\"high\",\"serviceTier\":\"standard\",\"models\":[{\"provider\":\"openai-codex\",\"id\":\"gpt-6-astra\",\"name\":\"GPT-6 Astra\",\"thinkingLevels\":[\"low\",\"medium\",\"high\"],\"serviceTiers\":[\"standard\",\"fast\"]}]}");
   final String[] sent={null};final ModelSettingsSheet[] sheet={null};
-  try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(ChatActivity.intent(context,"design-preview","Design preview",false))){scenario.onActivity(a->{sheet[0]=new ModelSettingsSheet(a,config,true,(provider,model,effort,tier)->sent[0]=tier);sheet[0].show();});assertTrue(device.wait(Until.hasObject(By.res(context.getPackageName(),"tierFast")),3000));device.findObject(By.res(context.getPackageName(),"tierFast")).click();idle();assertNull(sent[0]);device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"tier-picker.png"));device.findObject(By.res(context.getPackageName(),"applyModelButton")).click();idle();assertEquals("fast",sent[0]);scenario.onActivity(a->sheet[0].dismiss());}
+  try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(ChatActivity.intent(context,"design-preview","Design preview",false))){scenario.onActivity(ChatFixture::prepareLoading);scenario.onActivity(a->{sheet[0]=new ModelSettingsSheet(a,config,true,(provider,model,effort,tier)->sent[0]=tier);sheet[0].show();});assertTrue(device.wait(Until.hasObject(By.res(context.getPackageName(),"tierFast")),3000));device.findObject(By.res(context.getPackageName(),"tierFast")).click();idle();assertNull(sent[0]);device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"tier-picker.png"));device.findObject(By.res(context.getPackageName(),"applyModelButton")).click();idle();assertEquals("fast",sent[0]);scenario.onActivity(a->sheet[0].dismiss());}
  }
  @Test public void workingHeaderShowsActualModelEffortAndTier()throws Exception {
   JSONObject config=new JSONObject("{\"model\":\"openai-codex/gpt-6-astra\",\"thinkingLevel\":\"low\",\"serviceTier\":\"standard\",\"serviceTiers\":[\"standard\",\"fast\"],\"execution\":{\"model\":\"gpt-6-astra\",\"thinkingLevel\":\"high\",\"serviceTier\":\"fast\",\"tierConfirmed\":true}}");JSONObject snapshot=new JSONObject("{\"sessionId\":\"header-preview\",\"status\":\"running\",\"messages\":[{\"id\":\"user\",\"role\":\"user\",\"text\":\"Polish the mobile interface.\"}]}");
-  try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(ChatActivity.intent(context,"header-preview","Pi Mobile · design pass",false))){scenario.onActivity(a->{a.onConfiguration("header-preview",config);a.onSnapshot(ru.billyhargrove.pimobile.core.SnapshotParser.parse(snapshot));assertTrue(((android.widget.TextView)a.findViewById(R.id.chatStatusText)).getText().toString().contains("gpt-6-astra"));android.widget.TextView status=a.findViewById(R.id.chatStatusText);String detail=status.getText().toString();assertEquals(1,status.getMaxLines());assertTrue(detail,detail.contains(" · High · "));assertTrue(detail,detail.contains("Fast"));assertFalse(detail,detail.contains("requested"));});idle();device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"chat-model-header.png"));}
+  try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(ChatActivity.intent(context,"header-preview","Pi Mobile · design pass",false))){scenario.onActivity(ChatFixture::prepareLoading);scenario.onActivity(a->{a.onConfiguration("header-preview",config);a.onSnapshot(ru.billyhargrove.pimobile.core.SnapshotParser.parse(snapshot));});idle();assertTrue(device.wait(Until.hasObject(By.res(context.getPackageName(),"chatStatusText")),5000));String detail=device.findObject(By.res(context.getPackageName(),"chatStatusText")).getText();assertTrue(detail,detail.contains("gpt-6-astra"));assertTrue(detail,detail.contains(" · High · "));assertTrue(detail,detail.contains("Fast"));assertFalse(detail,detail.contains("requested"));assertFalse(detail.contains("\n"));device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"chat-model-header.png"));}
  }
  @Test public void attachmentThumbnailOpensAndZoomsFromWrappedContext()throws Exception {
-  final MessageAdapter[] adapter={null};
-  try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(ChatActivity.intent(context,"attachment-preview","Attachment preview",false))){
+  final android.graphics.Bitmap[] thumbnail={null};
+  try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(ChatActivity.intent(context,"attachment-preview","Attachment preview",false))){scenario.onActivity(ChatFixture::prepareLoading);
    scenario.onActivity(a->{android.graphics.Bitmap b=android.graphics.Bitmap.createBitmap(400,900,android.graphics.Bitmap.Config.ARGB_8888);android.graphics.Canvas canvas=new android.graphics.Canvas(b);canvas.drawColor(android.graphics.Color.DKGRAY);android.graphics.Paint paint=new android.graphics.Paint();paint.setColor(android.graphics.Color.WHITE);paint.setTextSize(28);canvas.drawText("Screenshot preview",24,60,paint);for(int i=0;i<8;i++){paint.setColor(i%2==0?0xff315de8:0xff666666);canvas.drawRoundRect(24,100+i*90,376,170+i*90,16,16,paint);}
-    androidx.recyclerview.widget.RecyclerView list=new androidx.recyclerview.widget.RecyclerView(new android.view.ContextThemeWrapper(a,R.style.Theme_PiMobile));list.setLayoutManager(new androidx.recyclerview.widget.LinearLayoutManager(a));a.setContentView(list);adapter[0]=new MessageAdapter(PiApp.get(a).mediaLoader(),(id,index)->b,null);list.setAdapter(adapter[0]);adapter[0].submit(java.util.Collections.singletonList(ru.billyhargrove.pimobile.core.ChatMessage.local("image-test","Attached screenshot",java.util.Collections.singletonList(MessageAdapter.localRef(0,"image/png")),ru.billyhargrove.pimobile.core.ChatMessage.LocalState.ACCEPTED)));
+    thumbnail[0]=b;ru.billyhargrove.pimobile.features.chat.ChatSession chat=ChatFixture.install(a,"attachment-preview",false,java.util.Collections.emptyList());ChatFixture.text(chat,"Attached screenshot");chat.prepared(java.util.Collections.singletonList(new ru.billyhargrove.pimobile.media.Attachment(new ru.billyhargrove.pimobile.core.ImagePayload(new byte[]{1},"image/png"),b,"screenshot.png")));chat.send(ru.billyhargrove.pimobile.core.CommandBuilder.Behavior.FOLLOW_UP);chat.onAck(new ru.billyhargrove.pimobile.core.Ack("request-1","attachment-preview",true,""));
    });idle();
    UiObject2 thumb=device.wait(Until.findObject(By.desc(context.getString(R.string.cd_message_image,1))),5000);
    assertNotNull("Attachment thumbnail did not bind",thumb);
@@ -69,13 +86,13 @@ public class DesignPreviewTest {
    device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"attachment-fullscreen.png"));
    device.findObject(By.res(context.getPackageName(),"closeImageButton")).click();
    assertTrue("Viewer did not close",device.wait(Until.gone(By.res(context.getPackageName(),"zoomImage")),3000));
-   scenario.onActivity(a->adapter[0].close());
+   scenario.onActivity(a->{if(thumbnail[0]!=null)thumbnail[0].recycle();});
   }
  }
  @Test public void microphoneHasLiveWaveformAndPrivateFile()throws Exception {
   InstrumentationRegistry.getInstrumentation().getUiAutomation().grantRuntimePermission(context.getPackageName(),android.Manifest.permission.RECORD_AUDIO);
   final DictationRecorder[] recorder={null};final java.io.File[] result={null};final String[] error={null};java.util.concurrent.CountDownLatch done=new java.util.concurrent.CountDownLatch(1);
-  try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(ChatActivity.intent(context,"voice-preview","Voice preview",false))){
+  try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(ChatActivity.intent(context,"voice-preview","Voice preview",false))){scenario.onActivity(ChatFixture::prepareLoading);
    try{
     scenario.onActivity(a->recorder[0]=new DictationRecorder(a,file->{result[0]=file;done.countDown();},message->{error[0]=message;done.countDown();}));
     assertTrue("Microphone waveform did not appear",device.wait(Until.hasObject(By.res(context.getPackageName(),"voiceWaveform")),5000));

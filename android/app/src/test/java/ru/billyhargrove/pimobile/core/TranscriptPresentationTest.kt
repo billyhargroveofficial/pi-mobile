@@ -24,7 +24,7 @@ class TranscriptPresentationTest {
         model.metadata(done)
         assertTrue(model.items()[1].expanded)
         assertFalse(model.items().last().expanded)
-        assertEquals("p", model.items()[2].row.message.id())
+        assertEquals("p", model.items()[2].row.message!!.id())
     }
 
     @Test fun prependAndCumulativeToolUpdatesKeepStableKeysAndLiveBodies() {
