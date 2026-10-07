@@ -193,8 +193,9 @@ private fun MessageBubble(message: ChatMessage, markdown: MarkdownRenderer, load
     val ink = if (user) Color(BubbleColors.foreground(BubbleColors.color(context))) else colorResource(R.color.text_primary)
     BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
         val maxBubbleWidth = minOf(584.dp, maxWidth - 16.dp)
-        Column(Modifier.align(if (user) Alignment.CenterEnd else Alignment.CenterStart)
-            .widthIn(max = maxBubbleWidth).clip(RoundedCornerShape(24.dp)).background(bubble).padding(12.dp)) {
+        Column(Modifier.align(if (user) Alignment.CenterEnd else Alignment.CenterStart).widthIn(max = maxBubbleWidth)) {
+            Column(Modifier.widthIn(max = maxBubbleWidth).testTag("${context.packageName}:id/messageBubble")
+                .clip(RoundedCornerShape(24.dp)).background(bubble).padding(12.dp)) {
             if (message.text().isNotEmpty()) {
                 if (user) SelectionContainer { Text(message.text(), color = ink, fontSize = 15.sp, lineHeight = 20.sp) }
                 else NativeMarkdown(message.text(), markdown, ink)
@@ -204,8 +205,12 @@ private fun MessageBubble(message: ChatMessage, markdown: MarkdownRenderer, load
                     message.requestId(), image.url().substringAfter(':').toIntOrNull() ?: index) else null
                 TranscriptImage(image.url(), index, loader, minOf(240.dp, maxBubbleWidth - 24.dp), local)
             }
-            if (user && message.localState() in setOf(ChatMessage.LocalState.NONE, ChatMessage.LocalState.ACCEPTED)) Text("✓✓", color = ink, fontSize = 11.sp,
-                modifier = Modifier.align(Alignment.End).padding(top = 6.dp).semantics { contentDescription = "Accepted by Pi" })
+            }
+            if (user && message.localState() in setOf(ChatMessage.LocalState.NONE, ChatMessage.LocalState.ACCEPTED)) Text("read",
+                color = colorResource(R.color.text_secondary), fontSize = 10.sp, lineHeight = 12.sp,
+                modifier = Modifier.align(Alignment.End).padding(top = 2.dp, end = 8.dp)
+                    .testTag("${context.packageName}:id/messageRead")
+                    .semantics { contentDescription = "Accepted by Pi; not task completion" })
             else if (message.isLocal) {
                 Text(StatusUi.localStateLabel(context, message.localState()), fontSize = 11.sp,
                     color = Color(StatusUi.localStateColor(context, message.localState())),

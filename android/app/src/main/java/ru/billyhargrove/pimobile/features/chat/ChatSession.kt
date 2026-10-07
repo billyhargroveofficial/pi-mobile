@@ -44,7 +44,7 @@ class ChatSession(
     var configuration by mutableStateOf<JSONObject?>(null); private set
     var metadata by mutableStateOf(JSONObject()); private set
     var items by mutableStateOf<List<TranscriptPresentation.Item>>(emptyList()); private set
-    var navigationRows by mutableStateOf(SessionGrouping.build(transport.catalog())); private set
+    var notice by mutableStateOf(""); private set
     var composer by mutableStateOf(TextFieldValue())
     var attachments by mutableStateOf<List<Attachment>>(emptyList()); private set
     var preparing by mutableStateOf(false); private set
@@ -92,6 +92,8 @@ class ChatSession(
     fun toggle(group: String) { presentation.toggle(group); items = presentation.items() }
     fun thumbnail(request: String, index: Int) = outbox.thumbnail(request, index)
     fun transcriptionChanged(value: Boolean) { transcribing = value }
+    fun showNotice(text: String) { notice = text }
+    fun dismissNotice() { notice = "" }
     fun beginPreparing(): Boolean {
         if (readOnly || preparing) return false
         preparing = true
@@ -203,7 +205,6 @@ class ChatSession(
 
     override fun onConnectionState(state: ConnectionState, detail: String) { connection = state }
     override fun onCatalog(catalog: Catalog) {
-        navigationRows = SessionGrouping.build(catalog)
         val session = catalog.findSession(sessionId) ?: return
         status = session.status()
         if (session.displayTitle().isNotEmpty()) title = session.displayTitle()
@@ -313,6 +314,6 @@ class ChatSession(
     }
     private fun tail() { followTail = true; restoreViewport = null; tailRevision++ }
     private fun setText(text: String) { composer = TextFieldValue(text, TextRange(text.length)) }
-    private fun notice(text: String) { effect(Effect.Notice(text)) }
+    private fun notice(text: String) { showNotice(text); effect(Effect.Notice(text)) }
     private fun error(ack: Ack) = ack.error().ifEmpty { "no details" }
 }

@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.*
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.*
 import androidx.compose.ui.viewinterop.AndroidView
@@ -24,16 +25,34 @@ import java.util.function.Consumer
 import java.util.function.Supplier
 import ru.billyhargrove.pimobile.R
 
-/** Anchored Compose effort panel; the composer and its keyboard keep focus. */
-class EffortPopup(anchor: View, anchorBounds: Supplier<Rect>, model: JSONObject, current: String, editable: Boolean,
+/** Anchored effort panel. Selections/ACK never close it; dismissal belongs to the user. */
+class EffortPopup(anchor: View, anchorBounds: Supplier<Rect>, initialModel: JSONObject, current: String, editable: Boolean,
     openModels: Runnable, callback: Apply, currentTier: String?, changeTier: Consumer<String>?) : PopupWindow() {
     fun interface Apply { fun apply(level: String) }
+    private var model by mutableStateOf(initialModel)
+    private var selected by mutableStateOf(current)
+    private var tier by mutableStateOf(currentTier ?: "standard")
+    private var pending by mutableStateOf(false)
+    private var error by mutableStateOf("")
+    private var confirmedLevel = current
+    private var confirmedTier = tier
     constructor(anchor: View, model: JSONObject, current: String, callback: Apply) : this(anchor, model, current, true, Runnable {}, callback)
     constructor(anchor: View, model: JSONObject, current: String, editable: Boolean, openModels: Runnable, callback: Apply) :
         this(anchor, model, current, editable, openModels, callback, "standard", null)
     constructor(anchor: View, model: JSONObject, current: String, editable: Boolean, openModels: Runnable, callback: Apply, currentTier: String?, changeTier: Consumer<String>?) :
         this(anchor, Supplier { val xy = IntArray(2); anchor.getLocationOnScreen(xy); Rect(xy[0], xy[1], xy[0] + anchor.width, xy[1] + anchor.height) },
             model, current, editable, openModels, callback, currentTier, changeTier)
+    fun updateConfiguration(config: JSONObject) {
+        val models = config.optJSONArray("models")
+        (0 until (models?.length() ?: 0)).mapNotNull { models?.optJSONObject(it) }
+            .find { "${it.optString("provider")}/${it.optString("id")}" == config.optString("model") }?.let { model = it }
+        selected = config.optString("thinkingLevel", selected); confirmedLevel = selected
+        tier = config.optString("serviceTier", tier); confirmedTier = tier
+    }
+    fun completed(failure: String?) {
+        pending = false; error = failure.orEmpty()
+        if (failure != null) { selected = confirmedLevel; tier = confirmedTier }
+    }
     init {
         val context = anchor.context; val density = context.resources.displayMetrics.density; val pad = (16 * density).toInt()
         val root = object : FrameLayout(context) {
@@ -45,23 +64,27 @@ class EffortPopup(anchor: View, anchorBounds: Supplier<Rect>, model: JSONObject,
         }
         root.setViewTreeLifecycleOwner(anchor.findViewTreeLifecycleOwner())
         root.setViewTreeSavedStateRegistryOwner(anchor.findViewTreeSavedStateRegistryOwner())
-        var selected by mutableStateOf(current)
-        var committed = false
         fun tag(name: String) = Modifier.testTag("${context.packageName}:id/$name").semantics { testTagsAsResourceId = true }
         root.addView(ComposeView(context).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
             setContent { PiTheme {
                 Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(24.dp)).padding(16.dp)) {
                     Row(Modifier.fillMaxWidth()) {
-                        TextButton(onClick = { dismiss(); openModels.run() }, modifier = tag("popupModelButton").weight(1f).heightIn(min = 48.dp)) {
+                        TextButton(onClick = { openModels.run() }, enabled = !pending,
+                            modifier = tag("popupModelButton").weight(1f).heightIn(min = 48.dp)) {
                             Text(model.optString("name", model.optString("id")) + " ▾", maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                         }
                         if (TierToggle.supportsFast(model.optJSONArray("serviceTiers")) && changeTier != null) {
-                            val fast = currentTier == "fast"
-                            OutlinedButton(onClick = { changeTier.accept(if (fast) "standard" else "fast"); dismiss() }, enabled = editable,
+                            val fast = tier == "fast"
+                            OutlinedButton(onClick = {
+                                tier = if (fast) "standard" else "fast"; pending = true; error = ""; changeTier.accept(tier)
+                            }, enabled = editable && !pending,
                                 modifier = tag("quickTierButton").heightIn(min = 48.dp).semantics { contentDescription = "Processing tier: ${if (fast) "Fast" else "Standard"}. Switch to ${if (fast) "Standard" else "Fast"}" }) {
                                 Text(if (fast) "ϟ Fast" else "Standard", fontSize = 11.sp)
                             }
+                        }
+                        IconButton(onClick = { dismiss() }, modifier = tag("closeEffortPanel").size(48.dp)) {
+                            Icon(painterResource(R.drawable.ic_close), "Close effort panel")
                         }
                     }
                     Row(tag("effortTitle").padding(top = 12.dp, bottom = 16.dp)) {
@@ -72,18 +95,28 @@ class EffortPopup(anchor: View, anchorBounds: Supplier<Rect>, model: JSONObject,
                         Text("Faster", Modifier.weight(1f), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("Smarter", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    AndroidView(factory = { EffortSlider(it).apply {
-                        id = R.id.quickEffortSlider
-                        configure(model.optJSONArray("thinkingLevels"), current) { value, done ->
-                            selected = value
-                            if (done && editable && !committed) {
-                                committed = true
-                                if (value != current) callback.apply(value)
-                                root.postDelayed({ if (isShowing) dismiss() }, if (ExpressiveMotion.enabled()) 450L else 0L)
+                    AndroidView(factory = { EffortSlider(it).apply { id = R.id.quickEffortSlider } }, update = { slider ->
+                        val levels = model.optJSONArray("thinkingLevels")
+                        val signature = model.optString("provider") + "/" + model.optString("id") + "|" + levels
+                        if (slider.tag != signature) {
+                            slider.tag = signature
+                            slider.configure(levels, selected) { value, done ->
+                                val changed = value != confirmedLevel
+                                selected = value
+                                if (done && editable && !pending && changed) {
+                                    pending = true; error = ""; callback.apply(value)
+                                }
                             }
                         }
-                        isEnabled = editable && (model.optJSONArray("thinkingLevels")?.length() ?: 0) > 1
-                    } }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(64.dp))
+                        val index = (0 until (levels?.length() ?: 0)).indexOfFirst { levels?.optString(it) == selected }
+                        if (index >= 0 && slider.getProgress() != index) slider.setProgress(index)
+                        slider.isEnabled = editable && !pending && (levels?.length() ?: 0) > 1
+                    }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(64.dp))
+                    if (pending) Row(tag("effortPending").padding(top = 8.dp)) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Text("Waiting for Pi…", Modifier.padding(start = 8.dp), fontSize = 12.sp)
+                    }
+                    if (error.isNotEmpty()) Text(error, tag("effortError").padding(top = 8.dp), fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
                 }
             } }
         }, FrameLayout.LayoutParams(-1, -2))

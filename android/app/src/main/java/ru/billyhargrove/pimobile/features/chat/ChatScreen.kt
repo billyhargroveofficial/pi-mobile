@@ -22,6 +22,7 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
@@ -80,7 +81,7 @@ fun ChatScreen(
         .semantics { testTagsAsResourceId = true }.testTag(prefix + "chatRoot")) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).testTag(prefix + "chatTopBar"),
             verticalAlignment = Alignment.CenterVertically) {
-            ChatIcon(R.drawable.ic_menu, "Open navigation", prefix + "backButton", soft = true, onClick = onBack)
+            ChatIcon(R.drawable.ic_back, "Back to sessions", prefix + "backButton", soft = true, onClick = onBack)
             Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
                 Text(chat.title.ifEmpty { "Chat" }, fontSize = 18.sp, fontWeight = FontWeight.Medium,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, color = colorResource(R.color.text_primary),
@@ -94,6 +95,12 @@ fun ChatScreen(
             }
             if (chat.status == SessionStatus.RUNNING) ChatIcon(R.drawable.ic_stop, "Stop", prefix + "stopButton",
                 enabled = chat.canSend, tint = colorResource(R.color.danger), soft = true, onClick = chat::abort)
+        }
+        if (chat.notice.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp)
+            .testTag(prefix + "chatNotice").semantics { liveRegion = LiveRegionMode.Polite },
+            verticalAlignment = Alignment.CenterVertically) {
+            Text(chat.notice, fontSize = 12.sp, color = colorResource(R.color.text_secondary), modifier = Modifier.weight(1f))
+            ChatIcon(R.drawable.ic_close, "Dismiss message", prefix + "dismissNotice", onClick = chat::dismissNotice)
         }
         if (orchestration != null) OutlinedButton(onClick = onOrchestration,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).heightIn(min = 48.dp).testTag(prefix + "orchestrationButton")) {
@@ -141,6 +148,13 @@ fun ChatScreen(
                 }
                 val density = LocalDensity.current
                 val expanded = WindowInsets.ime.getBottom(density) > 0
+                val focusManager = LocalFocusManager.current
+                var hadKeyboard by remember { mutableStateOf(false) }
+                LaunchedEffect(expanded) {
+                    // A user-dismissed IME must not reopen when the compact composer recomposes.
+                    if (hadKeyboard && !expanded) focusManager.clearFocus()
+                    hadKeyboard = expanded
+                }
                 val actionSize = maxOf(48f, 24f * density.fontScale).dp
                 val fieldHeight = if (expanded) maxOf(64f, 38f * density.fontScale).dp
                     else maxOf(48f, 22f * density.fontScale + 20f).dp
@@ -148,11 +162,12 @@ fun ChatScreen(
                     spring(dampingRatio = .85f, stiffness = 500f), label = "composer")
                 Box(Modifier.fillMaxWidth().height(height).testTag(prefix + "composerEditor")) {
                     BasicTextField(chat.composer, onValueChange = { chat.composer = it },
-                        textStyle = TextStyle(color = colorResource(R.color.text_primary), fontSize = 17.sp),
-                        cursorBrush = SolidColor(colorResource(R.color.accent)), maxLines = 5, singleLine = !expanded,
+                        textStyle = TextStyle(color = colorResource(R.color.text_primary), fontSize = 17.sp, lineHeight = 22.sp),
+                        cursorBrush = SolidColor(colorResource(R.color.accent)), maxLines = if (expanded) 5 else 1, singleLine = false,
                         modifier = Modifier.fillMaxWidth().height(fieldHeight)
                             .padding(start = if (expanded) 8.dp else 48.dp, end = if (expanded) 8.dp else 144.dp)
-                            .padding(vertical = 10.dp).testTag(prefix + "composerInput"),
+                            .padding(vertical = if (expanded) 10.dp else (fieldHeight - (22f * density.fontScale).dp) / 2)
+                            .testTag(prefix + "composerInput"),
                         decorationBox = { inner ->
                             if (chat.composer.text.isEmpty()) Text("Message Pi", fontSize = 17.sp,
                                 color = colorResource(R.color.text_secondary), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -175,6 +190,7 @@ fun ChatScreen(
                             if (chat.transcribing) "Transcribing…" else if (chat.voice) "Dictation" else "Send", prefix + "sendButton",
                             enabled = chat.canSend && !chat.transcribing,
                             tint = colorResource(R.color.on_accent), filled = true,
+                            loading = chat.transcribing,
                             onClick = { if (chat.voice) onVoice() else chat.send(behavior) })
                     }
                 }
@@ -188,7 +204,9 @@ fun ChatScreen(
 
 @Composable
 private fun ChatIcon(icon: Int, description: String, tag: String, enabled: Boolean = true,
-    tint: Color = colorResource(R.color.text_primary), filled: Boolean = false, soft: Boolean = false, onClick: () -> Unit) {
+    tint: Color = colorResource(R.color.text_primary), filled: Boolean = false, soft: Boolean = false,
+    loading: Boolean = false, onClick: () -> Unit) {
+    Box(if (loading) Modifier.testTag("${LocalContext.current.packageName}:id/transcriptionSpinner") else Modifier) {
     IconButton(onClick, enabled = enabled, modifier = Modifier.size(48.dp).testTag(tag)
         .clip(CircleShape).background(if (filled) colorResource(R.color.accent) else if (soft) colorResource(R.color.surface_alt) else Color.Transparent)
         .then(if (soft) Modifier.border(0.7.dp, colorResource(R.color.outline_soft), CircleShape) else Modifier)
@@ -196,7 +214,10 @@ private fun ChatIcon(icon: Int, description: String, tag: String, enabled: Boole
             testTagsAsResourceId = true; contentDescription = description; role = Role.Button
             if (enabled) onClick { onClick(); true } else disabled()
         }) {
-        Icon(painterResource(icon), null, tint = if (enabled) tint else tint.copy(alpha = .38f), modifier = Modifier.size(24.dp))
+        if (loading) CircularProgressIndicator(Modifier.size(22.dp),
+            color = tint, strokeWidth = 2.dp)
+        else Icon(painterResource(icon), null, tint = if (enabled) tint else tint.copy(alpha = .38f), modifier = Modifier.size(24.dp))
+    }
     }
 }
 

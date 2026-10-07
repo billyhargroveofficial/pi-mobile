@@ -5,7 +5,6 @@ import android.content.pm.*
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -28,6 +27,7 @@ class AppUpdates(private val activity: AppCompatActivity) {
     private val prefs = activity.getSharedPreferences("updates", Context.MODE_PRIVATE)
     private val http = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
         .connectTimeout(15, TimeUnit.SECONDS).readTimeout(40, TimeUnit.SECONDS).callTimeout(120, TimeUnit.SECONDS).build()
+    var status by mutableStateOf(""); private set
     private var busy = false
     @Volatile private var closed = false
     @Volatile private var cancelled = false
@@ -40,7 +40,7 @@ class AppUpdates(private val activity: AppCompatActivity) {
         val now = System.currentTimeMillis()
         if (!manual && now - prefs.getLong("lastCheck", 0) < 6 * 60 * 60 * 1000) return
         busy = true
-        if (manual) toast("Checking for updates…")
+        if (manual) status = "Checking for updates…"
         AppExecutors.io().execute {
             var update: ReleaseUpdate? = null; var error: String? = null
             try {
@@ -64,8 +64,9 @@ class AppUpdates(private val activity: AppCompatActivity) {
             AppExecutors.main {
                 busy = false
                 if (closed) return@main
-                if (failure != null) { if (manual) toast("Update check failed: $failure"); return@main }
-                if (result == null) { if (manual) toast("You are up to date · ${BuildConfig.VERSION_NAME}"); return@main }
+                if (failure != null) { if (manual) status = "Update check failed: $failure"; return@main }
+                if (result == null) { if (manual) status = "You are up to date · ${BuildConfig.VERSION_NAME}"; return@main }
+                status = "Update available · ${result.version}"
                 if (!manual && result.version == prefs.getString("dismissed", "")) return@main
                 ask("Pi Mobile ${result.version}", "A new ${if (result.preview) "preview " else ""}release is available (${kotlin.math.round(result.size / 1024.0 / 1024).toInt()} MB).\n\nDownload, verify and open the Android installer? Your connection settings will be kept.",
                     "Download update", { download(result) }, "Later", { prefs.edit().putString("dismissed", result.version).apply() })
@@ -142,7 +143,7 @@ class AppUpdates(private val activity: AppCompatActivity) {
             AppExecutors.main {
                 busy = false; if (closed) return@main
                 dialog?.dismiss(); if (cancelled) return@main
-                if (error != null) toast("Update failed: $error") else { pendingInstall = apk; install() }
+                if (error != null) status = "Update failed: $error" else { pendingInstall = apk; install() }
             }
         }
     }
@@ -172,10 +173,9 @@ class AppUpdates(private val activity: AppCompatActivity) {
             val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.updates", apk)
             activity.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
             pendingInstall = null
-        } catch (failure: Exception) { toast("Cannot install update: ${failure.message}") }
+        } catch (failure: Exception) { status = "Cannot install update: ${failure.message}" }
     }
     private fun cancelDownload() { cancelled = true; call?.cancel() }
     fun close() { closed = true; cancelDownload(); dialog?.dismiss() }
-    private fun toast(text: String) { Toast.makeText(activity, text, Toast.LENGTH_LONG).show() }
     private fun hex(bytes: ByteArray) = bytes.joinToString("") { "%02x".format(it.toInt() and 255) }
 }

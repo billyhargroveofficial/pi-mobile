@@ -46,7 +46,6 @@
       "ui/PiTheme",
       "ui/ComposeSheet",
       "ui/PiIcons",
-      "ui/PiNavigation",
       "ui/StatusUi"
     ]
   },

@@ -148,7 +148,7 @@ public class ExpressiveUiTest {
         org.json.JSONObject model=new org.json.JSONObject("{\"thinkingLevels\":[\"low\",\"medium\",\"high\"]}");final String[] sent={null};
         try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(chat())){scenario.onActivity(ChatFixture::prepareLoading);
             idle();Rect anchor=node("effortButton").getVisibleBounds();scenario.onActivity(a->new ru.billyhargrove.pimobile.ui.EffortPopup(root(a),()->anchor,model,"low",true,()->{},value->sent[0]=value,"standard",null));assertTrue(device.wait(Until.hasObject(By.res(context.getPackageName(),"quickEffortSlider")),5000));idle();
-            Rect r=device.findObject(By.res(context.getPackageName(),"quickEffortSlider")).getVisibleBounds();device.swipe(r.left+70,r.centerY(),r.right-70,r.centerY(),35);idle();assertEquals("high",sent[0]);
+            Rect r=device.findObject(By.res(context.getPackageName(),"quickEffortSlider")).getVisibleBounds();device.swipe(r.left+70,r.centerY(),r.right-70,r.centerY(),35);idle();assertEquals("high",sent[0]);node("closeEffortPanel").click();
         }
     }
 
@@ -173,7 +173,7 @@ public class ExpressiveUiTest {
 
     @Test public void speedometerModelRowOpensNextPickerWithoutApplying() throws Exception {
         org.json.JSONObject model=new org.json.JSONObject("{\"id\":\"a\",\"name\":\"Model A\",\"thinkingLevels\":[\"low\",\"high\"]}");final boolean[] opened={false};final String[] sent={null};
-        try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(chat())) {scenario.onActivity(ChatFixture::prepareLoading);idle();Rect anchor=node("effortButton").getVisibleBounds();scenario.onActivity(a->new ru.billyhargrove.pimobile.ui.EffortPopup(root(a),()->anchor,model,"low",true,()->opened[0]=true,value->sent[0]=value,"standard",null));assertTrue(device.wait(Until.hasObject(By.res(context.getPackageName(),"popupModelButton")),5000));device.findObject(By.res(context.getPackageName(),"popupModelButton")).click();idle();assertTrue(opened[0]);assertNull(sent[0]);}
+        try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(chat())) {scenario.onActivity(ChatFixture::prepareLoading);idle();Rect anchor=node("effortButton").getVisibleBounds();scenario.onActivity(a->new ru.billyhargrove.pimobile.ui.EffortPopup(root(a),()->anchor,model,"low",true,()->opened[0]=true,value->sent[0]=value,"standard",null));assertTrue(device.wait(Until.hasObject(By.res(context.getPackageName(),"popupModelButton")),5000));device.findObject(By.res(context.getPackageName(),"popupModelButton")).click();idle();assertTrue(opened[0]);assertNull(sent[0]);node("closeEffortPanel").click();}
     }
 
     @Test public void paletteUsesFixedNeutralColors() {
@@ -202,7 +202,7 @@ public class ExpressiveUiTest {
             assertTrue(device.wait(Until.hasObject(By.res(context.getPackageName(),"quickEffortSlider")),5000));idle();assertNull(sent[0]);
             scenario.onActivity(a->assertTrue(androidx.core.view.ViewCompat.getRootWindowInsets(root(a)).isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())));
             device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"effort-popup-keyboard.png"));
-            Rect slider=device.findObject(By.res(context.getPackageName(),"quickEffortSlider")).getVisibleBounds();device.click(slider.right-30,slider.centerY());idle();assertEquals("high",sent[0]);assertTrue(device.wait(Until.gone(By.res(context.getPackageName(),"quickEffortSlider")),3000));assertFalse(popup[0].isShowing());device.pressBack();
+            Rect slider=device.findObject(By.res(context.getPackageName(),"quickEffortSlider")).getVisibleBounds();device.click(slider.right-30,slider.centerY());idle();assertEquals("high",sent[0]);assertNotNull(node("quickEffortSlider"));assertTrue(popup[0].isShowing());node("closeEffortPanel").click();assertTrue(device.wait(Until.gone(By.res(context.getPackageName(),"quickEffortSlider")),3000));device.pressBack();
         }
     }
 

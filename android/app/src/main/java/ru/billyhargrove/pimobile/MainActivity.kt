@@ -47,7 +47,7 @@ class MainActivity : AppCompatActivity(), PiClient.Listener {
         state?.getString("catalog_screen")?.let { screen -> CatalogSession.Screen.entries.find { it.name == screen }?.let { catalogState.screen = it } }
         if (intent.getBooleanExtra("open_settings", false)) catalogState.screen = CatalogSession.Screen.Settings
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        setContent { PiTheme { CatalogScreen(catalogState, usageCards, { updates.check(true) }, { BubbleColors.show(this) }, intent.getBooleanExtra("open_drawer", false)) } }
+        setContent { PiTheme { CatalogScreen(catalogState, usageCards, { updates.check(true) }, { BubbleColors.show(this) }, updates.status) } }
     }
     override fun onSaveInstanceState(state: Bundle) { state.putString("catalog_screen", catalogState.screen.name); super.onSaveInstanceState(state) }
     override fun onStart() {

@@ -2,8 +2,9 @@
 
 `CatalogSession` owns the Orca catalog, connection-form state, confirmed launch /
 close / delete commands, scoped results and lifecycle generations. `CatalogScreen`
-owns Compose catalog and grouped settings, presenting the shared `ui/PiNavigation`
-drawer. `MainActivity` only
+owns Compose catalog, directly reachable history and grouped settings. The left
+drawer is removed in0.6.005. Connection errors render below the header; updater
+status lives in its settings row, not a bottom notification. `MainActivity` only
 composes transport, private preferences, navigation, lifecycle and platform timers.
 
 Public boundary: injected `CatalogSession.Transport`; listener frames from PiClient;

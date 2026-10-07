@@ -8,7 +8,6 @@ import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
 import android.view.inputmethod.InputMethodManager
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.lazy.LazyListState
@@ -50,7 +49,7 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
     private var documentPreview: MarkdownPreview? = null
     private var effortBounds = Rect()
     private val microphonePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-        if (it) startDictation() else toast("Microphone permission is required for dictation")
+        if (it) startDictation() else notice("Microphone permission is required for dictation")
     }
     private val imagePicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments(), ::picked)
 
@@ -85,17 +84,10 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
         root = ComposeView(this).apply {
             setContent { PiTheme {
                 chatState.value?.let { current ->
-                    PiNavigation(current.navigationRows, { row ->
-                        if (row.readOnly()) toast("Extension required: this terminal has no Pi bridge")
-                        else if (row.sessionId() != current.sessionId) startActivity(intent(this@ChatActivity, row.sessionId(), row.title(), false))
-                    }, { startActivity(Intent(this@ChatActivity, MainActivity::class.java).putExtra("open_history", true)) },
-                        { startActivity(Intent(this@ChatActivity, MainActivity::class.java).putExtra("open_settings", true)) },
-                        currentSession = current.sessionId) { openMenu, _ ->
-                        ChatScreen(current, transcriptList, app.mediaLoader(), behavior,
+                    ChatScreen(current, transcriptList, app.mediaLoader(), behavior,
                         { behavior = it; app.settings().setBehavior(it) }, orchestration.summary,
                         { startActivity(OrchestrationActivity.intent(this@ChatActivity, session, "", "", "Orchestration")) },
-                        openMenu, { imagePicker.launch(arrayOf("*/*")) }, ::requestDictation, ::quickEffort, ::onDocument)
-                    }
+                        { finish() }, { imagePicker.launch(arrayOf("*/*")) }, ::requestDictation, ::quickEffort, ::onDocument)
                 }
             } }
         }
@@ -131,7 +123,7 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
         effortBounds = bounds
         if (chat.configurationPending) return
         val config = chat.configuration
-        if (config == null || chat.connection != ConnectionState.CONNECTED) { toast("Connect to Pi first"); return }
+        if (config == null || chat.connection != ConnectionState.CONNECTED) { notice("Connect to Pi first"); return }
         val models = config.optJSONArray("models")
         val selected = (0 until (models?.length() ?: 0)).mapNotNull { models?.optJSONObject(it) }
             .find { "${it.optString("provider")}/${it.optString("id")}" == config.optString("model") }
@@ -143,9 +135,8 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
     }
     private fun openModelSettings() {
         if (chat.configurationPending) return
-        effortPopup?.dismiss()
         val config = chat.configuration
-        if (config?.optJSONArray("models") == null) { toast("Run /reload in Pi when idle to load models and effort levels."); return }
+        if (config?.optJSONArray("models") == null) { notice("Run /reload in Pi when idle to load models and effort levels."); return }
         modelSheet?.dismiss()
         (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(root.windowToken, 0)
         modelSheet = ModelSettingsSheet(this, config, chat.canConfigureModel) { provider, model, effort, tier ->
@@ -155,10 +146,12 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
     }
     private fun effect(value: ChatSession.Effect) {
         when (value) {
-            is ChatSession.Effect.Notice -> toast(value.text)
+            is ChatSession.Effect.Notice -> Unit // The owner exposes persistent, dismissible inline feedback.
             is ChatSession.Effect.ConfigurationResult -> {
-                if (value.error == null) { modelSheet?.dismiss(); toast("Session settings updated") }
-                else if (modelSheet?.isShowing == true) modelSheet?.failed(value.error) else toast(value.error)
+                effortPopup?.completed(value.error)
+                if (value.error == null) modelSheet?.applied()
+                else if (modelSheet?.isShowing == true) modelSheet?.failed(value.error)
+                else if (effortPopup?.isShowing != true) notice(value.error)
             }
             is ChatSession.Effect.Document -> {
                 documentPreview?.dismiss()
@@ -191,18 +184,18 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
         val uri = Uri.parse(raw)
         val scheme = uri.scheme
         if (scheme.equals("http", true) || scheme.equals("https", true)) {
-            try { startActivity(Intent(Intent.ACTION_VIEW, uri)) } catch (_: Exception) { toast("No app available to open this link") }
+            try { startActivity(Intent(Intent.ACTION_VIEW, uri)) } catch (_: Exception) { notice("No app available to open this link") }
             return
         }
-        if (scheme != null && !scheme.equals("file", true)) { toast("This link type is not supported"); return }
+        if (scheme != null && !scheme.equals("file", true)) { notice("This link type is not supported"); return }
         val path = Uri.decode((if (scheme == null) raw else uri.path ?: return).substringBefore('#'))
-        if (!path.matches(Regex(".*\\.(md|markdown)$", RegexOption.IGNORE_CASE))) { toast("Preview supports .md and .markdown files"); return }
+        if (!path.matches(Regex(".*\\.(md|markdown)$", RegexOption.IGNORE_CASE))) { notice("Preview supports .md and .markdown files"); return }
         chat.document(path)
     }
     private fun picked(uris: List<Uri>) {
         if (uris.isEmpty() || chat.readOnly || chat.preparing) return
         val free = ImageGuard.MAX_IMAGES - chat.attachments.size
-        if (uris.size > free) toast(getString(R.string.error_attach_limit))
+        if (uris.size > free) notice(getString(R.string.error_attach_limit))
         if (free <= 0 || !chat.beginPreparing()) return
         val owner = chat
         val selected = uris.take(free)
@@ -218,13 +211,13 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
                     ImagePreparer.displayName(contentResolver, uri)))
             } catch (error: Exception) { failure = error.message ?: "could not read file"; break }
             AppExecutors.main {
-                if (!isDestroyed) { owner.prepared(staged); failure?.let { toast(getString(R.string.error_attach_failed, it)) } }
+                if (!isDestroyed) { owner.prepared(staged); failure?.let { notice(getString(R.string.error_attach_failed, it)) } }
             }
         }
     }
     private fun requestDictation() {
         if (chat.readOnly) return
-        if (chat.transcribing) { toast("The previous recording is still being transcribed"); return }
+        if (chat.transcribing) { return }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
             microphonePermission.launch(Manifest.permission.RECORD_AUDIO) else startDictation()
     }
@@ -232,7 +225,7 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
         if (isFinishing || isDestroyed || chat.readOnly) return
         val owner = chat
         dictation = DictationRecorder(this, { file ->
-            dictation = null; owner.transcriptionChanged(true); toast("Transcribing on your computer…")
+            dictation = null; owner.dismissNotice(); owner.transcriptionChanged(true)
             val url = app.settings().baseUrl(); val token = app.settings().token()
             AppExecutors.io().execute {
                 var text: String? = null; var failure: String? = null
@@ -241,19 +234,22 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
                 AppExecutors.main {
                     owner.transcriptionChanged(false)
                     if (!isFinishing && !isDestroyed) {
-                        when { failure != null -> toast(failure!!); text.isNullOrBlank() -> toast("No speech detected"); else -> owner.insertDictation(text!!) }
+                        when { failure != null -> notice(failure!!); text.isNullOrBlank() -> notice("No speech detected"); else -> owner.insertDictation(text!!) }
                     }
                 }
             }
-        }, ::toast)
+        }, ::notice)
     }
-    private fun toast(text: String) { Toast.makeText(this, text, Toast.LENGTH_SHORT).show() }
+    private fun notice(text: String) { chat.showNotice(text) }
     override fun onConnectionState(state: ConnectionState, detail: String) = chat.onConnectionState(state, detail)
     override fun onCatalog(catalog: Catalog) = chat.onCatalog(catalog)
     override fun onSnapshot(snapshot: Snapshot) = chat.onSnapshot(snapshot)
     override fun onMessages(update: MessagesUpdate) = chat.onMessages(update)
     override fun onAck(ack: Ack) = chat.onAck(ack)
-    override fun onConfiguration(id: String, value: JSONObject) = chat.onConfiguration(id, value)
+    override fun onConfiguration(id: String, value: JSONObject) {
+        chat.onConfiguration(id, value)
+        if (id == chat.sessionId) effortPopup?.updateConfiguration(value)
+    }
     override fun onTimelineMeta(frame: JSONObject) = chat.onTimelineMeta(frame)
     override fun onData(request: String, id: String, data: JSONObject) = chat.onData(request, id, data)
     override fun onCommandUncertain(request: String, id: String, reason: String) = chat.onCommandUncertain(request, id, reason)

@@ -1,5 +1,9 @@
 # Проверки релизов Pi Mobile
 
+## 0.6.005 — UI хотфикс, 7 октября 2026
+
+Актуальные проверки: [release-0.6.005.md](release-0.6.005.md):82 Node,173 JVM,64 synthetic UI PASS/1 live opt-in skipped (`OK (65 tests)`), обе15-case display/font/theme матрицы, визуальный просмотр и upgrade/rollback с сохранением приватных данных. GitHub-релиз разрешён; Telegram не требуется.
+
 ## 0.6.004 — Kotlin/Compose, 7 октября 2026
 
 Актуальный результат и ограничения: [release-0.6.004.md](release-0.6.004.md). Ниже сохранены исторические проверки; они не заменяют проверку нового APK.

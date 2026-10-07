@@ -10,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.*
 import androidx.compose.ui.viewinterop.AndroidView
@@ -35,7 +36,12 @@ class ModelSettingsSheet(context: Context, private val config: JSONObject, priva
         LaunchedEffect(Unit) { val index = models.indexOf(selected); if (index >= 0) list.scrollToItem(index) }
         Column(Modifier.fillMaxWidth().heightIn(max = (context.resources.displayMetrics.heightPixels / context.resources.displayMetrics.density * .85f).dp)
             .navigationBarsPadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Configure", fontSize = 20.sp)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("Configure", Modifier.weight(1f), fontSize = 20.sp)
+                IconButton(onClick = { dismiss() }, modifier = tag("closeModelPanel").size(48.dp)) {
+                    Icon(painterResource(ru.billyhargrove.pimobile.R.drawable.ic_close), "Close model panel")
+                }
+            }
             Text(when { error.isNotEmpty() -> error; pending -> "Waiting for Pi to confirm…"; models.isEmpty() -> "Models unavailable. Run /reload in Pi when idle."
                 !idle -> "Wait for the current task to finish"; else -> "This session only" + if (config.optBoolean("modelsTruncated")) " · First 1,000 models" else "" },
                 fontSize = 12.sp, color = if (error.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -75,6 +81,7 @@ class ModelSettingsSheet(context: Context, private val config: JSONObject, priva
             }, enabled = idle && !pending && selected != null, modifier = tag("applyModelButton").fillMaxWidth().heightIn(min = 56.dp)) { Text("Apply") }
         }
     } }
+    fun applied() { pending = false; error = "" }
     fun failed(message: String) { pending = false; error = message }
     private fun tag(name: String) = Modifier.testTag("${context.packageName}:id/$name").semantics { testTagsAsResourceId = true }
     private fun key(model: JSONObject?) = model?.let { it.optString("provider") + "/" + it.optString("id") }.orEmpty()

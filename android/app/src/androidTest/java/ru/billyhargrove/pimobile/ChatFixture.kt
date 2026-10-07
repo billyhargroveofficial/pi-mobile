@@ -31,7 +31,8 @@ object ChatFixture {
         // Otherwise a late restore can overwrite a synthetic timeline halfway through a UI test.
         PiApp.get(activity).client().clearListener(activity)
         PiApp.get(activity).client().disconnect()
-        val chat = ChatSession(session, "Проверка дизайна", readOnly, Transport(), initial, {}, {})
+        val effect = ChatActivity::class.java.getDeclaredMethod("effect", ChatSession.Effect::class.java).apply { isAccessible = true }
+        val chat = ChatSession(session, "Проверка дизайна", readOnly, Transport(), initial, {}, { effect.invoke(activity, it) })
         chat.onSnapshot(Snapshot(session, SessionStatus.IDLE, true, emptyList(), false))
         val field = ChatActivity::class.java.getDeclaredField("chatState").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST") val state = field.get(activity) as MutableState<ChatSession?>

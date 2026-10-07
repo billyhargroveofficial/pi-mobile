@@ -47,7 +47,7 @@ test('composition and shared rendering use declared public APIs only',()=>{
  const orchestration=`${androidRoot}/OrchestrationActivity.kt`,header='package ru.billyhargrove.pimobile\nimport ru.billyhargrove.pimobile.ui.*\n';
  assert.deepEqual(checkOwnerImports(orchestration,header+'fun show() { PiTranscript(); PiTheme(); PiApp.get(this); ChatActivity.intent(this) }',ownership),[]);
  assert.match(checkOwnerImports(orchestration,header+'fun show() { ModelSettingsSheet() }',ownership).join('\n'),/chat implementation ui\/ModelSettingsSheet/);
- const foundation=`${androidRoot}/ui/PiNavigation.kt`;
+ const foundation=`${androidRoot}/ui/StatusUi.kt`;
  assert.match(checkOwnerImports(foundation,'package ru.billyhargrove.pimobile.ui\nfun show() { DictationRecorder() }',ownership).join('\n'),/ui-foundation must not depend on voice implementation/);
  const chat=`${androidRoot}/features/chat/ChatScreen.kt`;
  assert.match(checkOwnerImports(chat,'package ru.billyhargrove.pimobile.features.chat\nimport ru.billyhargrove.pimobile.MainActivity',ownership).join('\n'),/catalog implementation MainActivity/);

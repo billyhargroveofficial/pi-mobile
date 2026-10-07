@@ -34,8 +34,13 @@ chips, skills, composer and delivery selection. Screen callbacks request platfor
 navigation, picker/permissions/dictation and bounded model/document interop.
 The Activity preserves unsent text/caret on recreation. PiTranscript's default
 contract stays read-only; main-chat actions are injected callbacks to ChatSession.
-The shared PiNavigation drawer displays the live catalog and calls the shell for
-navigation. Opening/closing it keeps the same session and unsent composer.
+The left drawer is removed in0.6.005; the back action returns to the catalog.
+Composer IME options stay stable while keyboard visibility changes; user dismissal
+clears focus without changing text/caret. ChatSession owns dismissible inline
+notices, never Toast/Snackbar. Accepted receipts render `read` below the bubble,
+without implying task completion. Effort/model/tier panels remain open through
+selections and configuration ACK; only explicit user dismissal closes them.
+Transcription renders a spinner in composer and never automatically sends text.
 The old Java screen/widgets/adapter/XML have been removed.
 
 Mutations run on the Android main thread. This feature owns no connection,

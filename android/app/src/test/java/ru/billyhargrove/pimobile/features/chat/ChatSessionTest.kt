@@ -114,6 +114,27 @@ class ChatSessionTest {
         f.chat.onAck(Ack("c1", "other", true, "")); assertTrue(f.chat.configurationPending)
         f.chat.onCommandUncertain("c1", "s", "timeout"); assertFalse(f.chat.configurationPending); assertEquals(1, f.wire.writes)
     }
+    @Test fun successiveConfigurationAcksDoNotEmitSuccessNoticesOrReplay() {
+        val f = Fixture(); f.chat.onSnapshot(snapshot())
+        assertTrue(f.chat.configure(null, null, "high", null, false))
+        assertFalse(f.chat.configure(null, null, "low", null, false))
+        f.chat.dismissNotice(); f.effects.clear()
+        f.chat.onAck(Ack("c1", "s", true, ""))
+        assertFalse(f.chat.configurationPending); assertEquals("", f.chat.notice)
+        assertEquals(listOf(ChatSession.Effect.ConfigurationResult(null)), f.effects)
+        assertTrue(f.chat.configure(null, null, "low", null, false))
+        f.chat.onAck(Ack("c2", "s", true, "")); assertEquals(2, f.wire.writes)
+        f.chat.onCommandUncertain("c2", "s", "late timeout"); assertEquals(2, f.wire.writes)
+    }
+    @Test fun noticesArePersistentDismissibleStateAndTranscriptionNeverSends() {
+        val f = Fixture(); f.chat.onProtocolError("Synthetic error")
+        assertEquals("Protocol error: Synthetic error", f.chat.notice)
+        f.chat.dismissNotice(); assertEquals("", f.chat.notice)
+        f.chat.showNotice("Platform error"); assertEquals("Platform error", f.chat.notice)
+        f.chat.transcriptionChanged(true); assertTrue(f.chat.transcribing)
+        f.chat.insertDictation("Recognized words"); f.chat.transcriptionChanged(false)
+        assertEquals("Recognized words", f.chat.composer.text); assertEquals(0, f.wire.writes)
+    }
     @Test fun acceptedReceiptCannotDowngradeAndEchoIsCanonical() {
         val f = Fixture(); f.chat.composer = TextFieldValue("prompt"); f.chat.send(CommandBuilder.Behavior.FOLLOW_UP)
         f.chat.onAck(Ack("p1", "s", true, "")); f.chat.onCommandUncertain("p1", "s", "late")

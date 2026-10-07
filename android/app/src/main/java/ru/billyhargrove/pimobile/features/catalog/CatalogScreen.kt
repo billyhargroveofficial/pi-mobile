@@ -24,17 +24,14 @@ import ru.billyhargrove.pimobile.ui.*
 /** Navigation and grouped settings present real Orca data and explicit owner callbacks. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CatalogScreen(state: CatalogSession, usage: UsageCards, checkUpdates: () -> Unit, appearance: () -> Unit, openDrawerInitially: Boolean = false) {
+fun CatalogScreen(state: CatalogSession, usage: UsageCards, checkUpdates: () -> Unit, appearance: () -> Unit, updateStatus: String = "") {
     val prefix = LocalContext.current.packageName + ":id/"
     fun tag(name: String) = Modifier.testTag(prefix + name).semantics { testTagsAsResourceId = true }
-    PiNavigation(state.rows, state::open, state::history, { state.screen = CatalogSession.Screen.Settings },
-        historyEnabled = !state.launching, openInitially = openDrawerInitially) { openDrawer, drawerOpen ->
-        BackHandler(state.screen == CatalogSession.Screen.Settings && !drawerOpen) { state.screen = CatalogSession.Screen.Catalog }
+    BackHandler(state.screen == CatalogSession.Screen.Settings) { state.screen = CatalogSession.Screen.Catalog }
         Column(tag("mainRoot").fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding().navigationBarsPadding().imePadding()) {
             Row(tag("mainTopBar").fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                CircleIcon(if (state.screen == CatalogSession.Screen.Settings) R.drawable.ic_back else R.drawable.ic_menu,
-                    if (state.screen == CatalogSession.Screen.Settings) "Back" else "Open navigation", prefix + "navigationButton") {
-                    if (state.screen == CatalogSession.Screen.Settings) state.screen = CatalogSession.Screen.Catalog else openDrawer()
+                if (state.screen == CatalogSession.Screen.Settings) CircleIcon(R.drawable.ic_back, "Back", prefix + "navigationButton") {
+                    state.screen = CatalogSession.Screen.Catalog
                 }
                 Text(if (state.screen == CatalogSession.Screen.Settings) "Settings" else "Pi Mobile", Modifier.weight(1f), fontSize = 22.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (state.screen == CatalogSession.Screen.Catalog) {
@@ -42,7 +39,9 @@ fun CatalogScreen(state: CatalogSession, usage: UsageCards, checkUpdates: () -> 
                     CircleIcon(R.drawable.ic_settings, "Settings", prefix + "settingsButton") { state.screen = CatalogSession.Screen.Settings }
                 }
             }
-            if (state.screen == CatalogSession.Screen.Settings) Settings(state, prefix, checkUpdates, appearance, Modifier.weight(1f))
+            if (state.message.isNotEmpty()) Text(state.message, tag("connectErrorText").fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)
+                .semantics { liveRegion = LiveRegionMode.Polite }, color = if (state.messageError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+            if (state.screen == CatalogSession.Screen.Settings) Settings(state, prefix, checkUpdates, appearance, updateStatus, Modifier.weight(1f))
             else {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Spacer(tag("connectionDot").size(6.dp).background(Color(StatusUi.connectionDotColor(LocalContext.current, state.connection)), CircleShape))
@@ -80,17 +79,14 @@ fun CatalogScreen(state: CatalogSession, usage: UsageCards, checkUpdates: () -> 
                     }
                 }
             }
-            if (state.message.isNotEmpty()) Text(state.message, tag("connectErrorText").fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)
-                .semantics { liveRegion = LiveRegionMode.Polite }, color = if (state.messageError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
         }
-    }
     state.confirmation?.let { prompt -> AlertDialog(onDismissRequest = state::cancelConfirmation, title = { Text(prompt.title) }, text = { Text(prompt.message) },
         dismissButton = { TextButton(onClick = state::cancelConfirmation) { Text("Cancel") } },
         confirmButton = { TextButton(onClick = state::confirm) { Text(prompt.action, color = if (prompt.danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) } }) }
 }
 
 @Composable
-private fun Settings(state: CatalogSession, prefix: String, checkUpdates: () -> Unit, appearance: () -> Unit, modifier: Modifier) {
+private fun Settings(state: CatalogSession, prefix: String, checkUpdates: () -> Unit, appearance: () -> Unit, updateStatus: String, modifier: Modifier) {
     fun tag(name: String) = Modifier.testTag(prefix + name).semantics { testTagsAsResourceId = true }
     var showToken by remember { mutableStateOf(false) }
     Column(modifier.then(tag("connectPanel")).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -114,7 +110,7 @@ private fun Settings(state: CatalogSession, prefix: String, checkUpdates: () -> 
         Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(24.dp))) {
             SettingsRow("Message color", "Your side of the conversation", R.drawable.ic_chat, tag("bubbleColorSettings"), appearance)
             HorizontalDivider(color = MaterialTheme.colorScheme.background, thickness = 2.dp)
-            SettingsRow("Check for updates", "Installed · ${BuildConfig.VERSION_NAME}", R.drawable.ic_refresh, tag("checkUpdates"), checkUpdates)
+            SettingsRow("Check for updates", updateStatus.ifEmpty { "Installed · ${BuildConfig.VERSION_NAME}" }, R.drawable.ic_refresh, tag("checkUpdates"), checkUpdates)
         }
     }
 }
