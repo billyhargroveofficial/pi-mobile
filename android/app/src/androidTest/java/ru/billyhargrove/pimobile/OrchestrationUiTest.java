@@ -9,9 +9,49 @@ public class OrchestrationUiTest {
  private void idle(){InstrumentationRegistry.getInstrumentation().waitForIdleSync();device.waitForIdle(1000);}
  private JSONObject fixture()throws Exception {return new JSONObject("{\"available\":true,\"liveAvailable\":true,\"workflows\":[{\"id\":\"wf_design\",\"title\":\"Polish the mobile experience\",\"description\":\"Independent review, implementation and verification\",\"status\":\"running\",\"agentCount\":4,\"completed\":2,\"phases\":[{\"title\":\"Explore\",\"status\":\"completed\",\"agentCount\":2,\"completed\":2},{\"title\":\"Build\",\"status\":\"running\",\"agentCount\":1,\"completed\":0},{\"title\":\"Verify\",\"status\":\"queued\",\"agentCount\":1,\"completed\":0}]}],\"agents\":[{\"id\":\"a\",\"workflowId\":\"wf_design\",\"name\":\"Map the event stream\",\"phase\":\"Explore\",\"status\":\"completed\",\"model\":\"openai-codex/gpt-6-sol\",\"canInspect\":true},{\"id\":\"b\",\"workflowId\":\"wf_design\",\"name\":\"Review navigation\",\"phase\":\"Explore\",\"status\":\"completed\",\"model\":\"openai-codex/gpt-6-sol\",\"canInspect\":true},{\"id\":\"c\",\"workflowId\":\"wf_design\",\"name\":\"Build workflow cards\",\"description\":\"Live status, phase hierarchy and nested conversations\",\"phase\":\"Build\",\"status\":\"running\",\"model\":\"openai-codex/gpt-6-sol\",\"thinkingLevel\":\"high\",\"outputTokens\":1840,\"canInspect\":true},{\"id\":\"d\",\"workflowId\":\"wf_design\",\"name\":\"Verify on a narrow screen\",\"phase\":\"Verify\",\"status\":\"queued\",\"canInspect\":false},{\"id\":\"standalone\",\"name\":\"Check accessibility\",\"status\":\"running\",\"description\":\"Touch targets, contrast and large text\",\"model\":\"openai-codex/gpt-6-sol\",\"canInspect\":true}]} ");}
  @Test public void workflowCardsShowRealPhasesAndOpenDrillDown()throws Exception{JSONObject data=fixture();try(ActivityScenario<OrchestrationActivity> scenario=ActivityScenario.launch(OrchestrationActivity.intent(context,"ui-fixture","","","Orchestration"))){scenario.onActivity(a->{a.stopUpdates();a.render(data);});idle();assertTrue(device.hasObject(By.text("Polish the mobile experience")));assertTrue(device.hasObject(By.textContains("2 of 4 agents done")));device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"orchestration-overview.png"));device.findObject(By.descStartsWith("Workflow: Polish")).click();assertTrue(device.wait(Until.hasObject(By.text("Polish the mobile experience")),3000));device.pressBack();}}
- @Test public void workflowDetailShowsActiveCompletedAndQueuedAgents()throws Exception{JSONObject data=fixture();try(ActivityScenario<OrchestrationActivity> scenario=ActivityScenario.launch(OrchestrationActivity.intent(context,"ui-fixture","workflow","wf_design","Polish the mobile experience"))){scenario.onActivity(a->{a.stopUpdates();a.render(data);});idle();assertTrue(device.hasObject(By.text("Map the event stream")));assertTrue(device.hasObject(By.text("Build workflow cards")));device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"orchestration-agents.png"));device.findObject(By.descStartsWith("Agent: Build workflow cards")).click();assertTrue(device.wait(Until.hasObject(By.text("Build workflow cards")),3000));device.pressBack();}}
+ private UiObject2 visibleAgent(String name){
+  BySelector selector=By.descStartsWith("Agent: "+name);
+  // A partially visible row can expose its merged description before its title enters the viewport.
+  for(int i=0;i<10&&(!device.hasObject(selector)||!device.hasObject(By.text(name)));i++){
+   UiObject2 list=device.findObject(By.res(context.getPackageName(),"orchestrationList"));assertNotNull(list);
+   list.scroll(Direction.DOWN,0.6f,250);idle();
+  }
+  UiObject2 row=device.findObject(selector);assertNotNull("Agent is not reachable by scrolling: "+name,row);return row;
+ }
+ @Test public void workflowDetailShowsActiveCompletedAndQueuedAgents()throws Exception{
+  JSONObject data=fixture();
+  try(ActivityScenario<OrchestrationActivity> scenario=ActivityScenario.launch(OrchestrationActivity.intent(context,"ui-fixture","workflow","wf_design","Polish the mobile experience"))){
+   scenario.onActivity(a->{a.stopUpdates();a.render(data);});idle();
+   // At 2x font these rows cannot all fit simultaneously. Verify actual reachability,
+   // not accidental normal-font viewport geometry; never retry the navigation tap.
+   visibleAgent("Map the event stream");assertTrue(device.hasObject(By.text("Map the event stream")));
+   UiObject2 build=visibleAgent("Build workflow cards");assertTrue(device.hasObject(By.text("Build workflow cards")));
+   device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"orchestration-agents.png"));
+   build.click();assertTrue(device.wait(Until.hasObject(By.text("Build workflow cards")),3000));device.pressBack();
+  }
+ }
  @Test public void childAgentsAreScopedToTheirParentAndOpenReadOnly()throws Exception{JSONObject data=fixture();data.getJSONArray("agents").put(new JSONObject().put("id","child").put("parentId","c").put("workflowId","wf_design").put("name","Inspect tool output").put("status","running").put("model","openai-codex/gpt-6-sol").put("canInspect",true));data.getJSONArray("agents").put(new JSONObject().put("id","other-child").put("parentId","b").put("name","Other branch").put("status","completed"));try(ActivityScenario<OrchestrationActivity> scenario=ActivityScenario.launch(OrchestrationActivity.intent(context,"ui-fixture","","","Child agents").putExtra("parentAgent","c"))){scenario.onActivity(a->{a.stopUpdates();a.render(data);});idle();assertTrue(device.hasObject(By.text("Inspect tool output")));assertFalse(device.hasObject(By.text("Other branch")));device.findObject(By.descStartsWith("Agent: Inspect tool output")).click();assertTrue(device.wait(Until.hasObject(By.text("Inspect tool output")),3000));device.pressBack();}}
  @Test public void agentConversationIsReadOnlyAndCanLoadEarlierActivity()throws Exception{JSONObject data=new JSONObject("{\"agent\":{\"id\":\"c\",\"name\":\"Build workflow cards\",\"status\":\"running\",\"model\":\"openai-codex/gpt-6-sol\",\"thinkingLevel\":\"high\",\"outputTokens\":1840},\"childCount\":1,\"hasMore\":true,\"before\":120,\"messages\":[{\"id\":\"u\",\"role\":\"user\",\"text\":\"Build a clear, live workflow view.\"},{\"id\":\"p\",\"role\":\"assistant\",\"phase\":\"work\",\"text\":\"I found the phase events. Now connecting the live cards.\"},{\"id\":\"t\",\"role\":\"toolResult\",\"toolName\":\"read\",\"toolStatus\":\"done\",\"preview\":\"{\\\"path\\\":\\\"src/workflow.ts\\\"}\",\"text\":\"Read 84 lines.\"},{\"id\":\"p2\",\"role\":\"assistant\",\"phase\":\"work\",\"text\":\"The workflow is updating without interrupting its agents.\"}]}");try(ActivityScenario<OrchestrationActivity> scenario=ActivityScenario.launch(OrchestrationActivity.intent(context,"ui-fixture","agent","c","Build workflow cards"))){scenario.onActivity(a->{a.stopUpdates();a.renderAgent(data,false);assertNull(a.findViewById(R.id.composerInput));assertNull(a.findViewById(R.id.stopButton));});idle();assertTrue(device.hasObject(By.textContains("I found the phase events")));assertTrue(device.hasObject(By.res(context.getPackageName(),"agentLoadOlder")));assertTrue(device.hasObject(By.res(context.getPackageName(),"agentChildren")));device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"orchestration-conversation.png"));JSONObject earlier=new JSONObject(data.toString()).put("hasMore",false).put("before",0).put("messages",new JSONArray().put(new JSONObject().put("id","old").put("role","user").put("text","Earlier task context")));scenario.onActivity(a->a.renderAgent(earlier,true));assertTrue(device.wait(Until.gone(By.res(context.getPackageName(),"agentLoadOlder")),3000));}}
+
+ private static final class CountedAgent extends JSONObject {
+  final java.util.concurrent.atomic.AtomicInteger metricReads=new java.util.concurrent.atomic.AtomicInteger();
+  @Override public long optLong(String key){if(key.equals("toolCalls")||key.equals("outputTokens"))metricReads.incrementAndGet();return super.optLong(key);}
+ }
+ @Test public void workflowClockDoesNotRescanUnchangedAgentMetrics()throws Exception {
+  CountedAgent agent=new CountedAgent();agent.put("id","counted").put("workflowId","clock").put("status","running").put("toolCalls",7).put("outputTokens",321);
+  JSONObject flow=new JSONObject().put("id","clock").put("title","Count unchanged metrics").put("status","running")
+   .put("startedAt",System.currentTimeMillis()-10000).put("agentCount",1).put("completed",0);
+  JSONObject data=new JSONObject().put("available",true).put("liveAvailable",true).put("workflows",new JSONArray().put(flow)).put("agents",new JSONArray().put(agent));
+  try(ActivityScenario<OrchestrationActivity> scenario=ActivityScenario.launch(OrchestrationActivity.intent(context,"ui-fixture","","","Metrics clock"))){
+   scenario.onActivity(a->{a.stopUpdates();a.render(data);});idle();
+   UiObject2 metrics=device.findObject(By.textContains("7 tools · 321 tokens"));assertNotNull(metrics);String initial=metrics.getText();
+   int before=agent.metricReads.get();assertTrue("Fixture did not actually read metrics",before>0);
+   assertTrue("Elapsed time did not tick",device.wait(Until.gone(By.text(initial)),6000));idle();
+   int after=agent.metricReads.get();System.out.println("Workflow metric reads before/after live clock tick: "+before+"/"+after);
+   assertEquals("A clock tick must not rescan unchanged snapshot metrics",before,after);
+   assertTrue(device.hasObject(By.textContains("7 tools · 321 tokens")));
+  }
+ }
 
  private JSONObject agentPage(String status,JSONArray messages)throws Exception {
   return new JSONObject().put("agent",new JSONObject().put("id","compose-agent").put("status",status).put("model","openai-codex/gpt-6-sol"))
@@ -33,6 +73,9 @@ public class OrchestrationUiTest {
    assertTrue("Tool collapse animation did not finish",device.wait(Until.gone(By.res(context.getPackageName(),"workLogList")),3000));
    assertTrue(device.hasObject(By.text("Progress remains visible")));
    device.findObjects(By.desc("Expand tools")).get(0).click();idle();
+   // Observe the asynchronous Compose expansion, just as we already wait for collapse.
+   // Tap only once; retain exact group count, preview and repeated-snapshot assertions.
+   assertTrue("Tool expansion did not finish",device.wait(Until.hasObject(By.res(context.getPackageName(),"workLogList")),3000));
    assertEquals(1,device.findObjects(By.res(context.getPackageName(),"workLogList")).size());
    scenario.onActivity(a->a.renderAgent(done,false));idle();
    assertEquals("Repeated completed snapshots must preserve manual expansion",1,device.findObjects(By.res(context.getPackageName(),"workLogList")).size());

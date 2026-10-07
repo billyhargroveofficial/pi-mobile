@@ -1,5 +1,9 @@
 # Проверки релизов Pi Mobile
 
+## Локальная архитектура — 7 октября 2026, без нового релиза
+
+[Декомпозиция read-only orchestration и следующие слайсы](architecture-work-20261007.md):85 Node/211 JVM PASS;82 synthetic UI PASS +1 live opt-in skipped (`OK (83 tests)`),9-case orchestration normal/narrow/font/theme прогоны, сборка/lint0 errors. Семь matched dark before/after PNG имеют0 изменённых app pixels, immutable baseline сохранён. Android counter подтвердил устранение повторного JSON aggregation на тике часов:4→6 до,2→2 после. Нового APK-релиза/deployment/Telegram delivery нет; версия остаётся0.6.006/versionCode13. Ограничения физического устройства/live-сети сохраняются.
+
 ## 0.6.006 — compact UI, Queue и workflows, 7 октября 2026
 
 Актуальные проверки: [release-0.6.006.md](release-0.6.006.md):82 Node,185 JVM,81 synthetic UI PASS/1 live opt-in skipped (`OK (82 tests)`); по6 focused display/font/theme проверок именно0.6.006 и предыдущие широкие UI матрицы, визуальный просмотр. Upgrade опубликованной0.6.005→0.6.006 сохранил SHA256 всех9 существующих приватных файлов. Прежний сертификат, versionCode13. Billy прямо разрешил GitHub-релиз и затем отправку в «Парилка228». Live Pi/Orca/gateway не трогать.

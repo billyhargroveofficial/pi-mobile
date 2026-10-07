@@ -4,7 +4,7 @@ import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
-import {checkArchitecture,checkAndroidImports,checkOwnerImports,checkLaneImport,topLevelSymbols} from '../tools/check-architecture.mjs';
+import {checkArchitecture,checkAndroidImports,checkOwnerImports,checkLaneImport,checkSourceContract,topLevelSymbols} from '../tools/check-architecture.mjs';
 
 const ownership=JSON.parse(fs.readFileSync(new URL('../architecture/owners.json',import.meta.url),'utf8'));
 const androidRoot=ownership.androidSourceRoot;
@@ -54,6 +54,42 @@ test('composition and shared rendering use declared public APIs only',()=>{
  const exported=topLevelSymbols('class VoiceWaveform(val memberProperty: String) { fun member() {} }\nprivate fun hidden() {}\n@Composable\nfun Waveform() {}\nval label = "${"https://example.invalid"}"\nfun <T : Comparable<T>> extension() {}');
  assert.deepEqual(exported,['VoiceWaveform','Waveform','label','extension']);
  assert.match(checkOwnerImports(orchestration,header+'fun show() { Waveform() }',ownership,{'ui/VoiceWaveform':exported}).join('\n'),/voice implementation ui\/VoiceWaveform/);
+});
+test('inspection state and projection remain platform/transport free; screen only gets its media leaf',()=>{
+ const state=`${androidRoot}/features/orchestration/OrchestrationSession.kt`,projection=state.replace('Session','Projection'),screen=state.replace('Session','Screen');
+ for(const source of [
+  'import android.os.Handler as Poller\n',
+  'import androidx.activity.ComponentActivity\n',
+  'import android.os.*\nfun poll() { Handler() }',
+  'fun poll() { android.os.Handler() }',
+  'import ru.billyhargrove.pimobile.net.HttpApi as Wire\n',
+  'import ru.billyhargrove.pimobile.net.*\nfun poll() { HttpApi() }',
+  'val label = "${android.os.Handler()}"'
+ ])assert.match(checkSourceContract(state,source,ownership).join('\n'),/platform-free-state must not reference/);
+ assert.deepEqual(checkSourceContract(state,'import androidx.compose.runtime.*\nimport org.json.JSONObject\n// android.os.Handler\nval label = "android.os.Handler"',ownership),[]);
+ assert.match(checkSourceContract(projection,'import androidx.compose.runtime.mutableStateOf',ownership).join('\n'),/pure-projection must not reference/);
+ assert.deepEqual(checkSourceContract(projection,'import org.json.JSONObject\nimport ru.billyhargrove.pimobile.core.OrchestrationData',ownership),[]);
+ assert.deepEqual(checkSourceContract(screen,'import androidx.compose.foundation.*\nimport ru.billyhargrove.pimobile.net.MediaLoader',ownership),[]);
+ assert.match(checkSourceContract(screen,'import ru.billyhargrove.pimobile.net.*',ownership).join('\n'),/presentation-only must not reference/);
+ assert.match(checkSourceContract(screen,'import ru.billyhargrove.pimobile.net.HttpApi as Api',ownership).join('\n'),/presentation-only must not reference/);
+ assert.match(checkSourceContract(screen,'fun load() { okhttp3.OkHttpClient() }',ownership).join('\n'),/presentation-only must not reference/);
+});
+test('profiled feature source direction also rejects same-package/wildcard/aliased reverse dependencies',()=>{
+ const prefix=`${androidRoot}/features/orchestration/`,symbols={'features/orchestration/OrchestrationScreen':['OrchestrationScreen']};
+ for(const source of [
+  'fun render() { OrchestrationScreen() }',
+  'import ru.billyhargrove.pimobile.features.orchestration.OrchestrationScreen as Draw',
+  'import ru.billyhargrove.pimobile.features.orchestration.*\nfun render() { OrchestrationScreen() }',
+  'fun render() { ru.billyhargrove.pimobile.features.orchestration.OrchestrationScreen() }'
+ ])assert.match(checkSourceContract(prefix+'OrchestrationSession.kt',source,ownership,symbols).join('\n'),/platform-free-state must not depend on presentation-only/);
+ assert.match(checkSourceContract(prefix+'OrchestrationProjection.kt','fun project() { OrchestrationSession() }',ownership).join('\n'),/pure-projection must not depend on platform-free-state/);
+ assert.deepEqual(checkSourceContract(prefix+'OrchestrationScreen.kt','fun render() { OrchestrationSession(); OrchestrationProjection.project() }',ownership,symbols),[]);
+});
+test('source contracts reject unknown or unowned metadata rather than becoming a silent exception',async t=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),'pi-contract-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ await mkdir(path.join(root,'architecture'),{recursive:true});
+ await writeFile(path.join(root,'architecture/owners.json'),JSON.stringify({androidSourceRoot:androidRoot,owners:{},platformClasses:{},sourceContracts:{Unowned:'made-up'}}));
+ assert.match(checkArchitecture(root).join('\n'),/invalid source contract made-up/);
 });
 test('missing owners and dual-language copies fail closed',async t=>{
  const root=await mkdtemp(path.join(os.tmpdir(),'pi-architecture-'));

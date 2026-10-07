@@ -29,7 +29,10 @@
     ],
     "orchestration": [
       "OrchestrationActivity",
-      "ui/OrchestrationEntry"
+      "ui/OrchestrationEntry",
+      "features/orchestration/OrchestrationSession",
+      "features/orchestration/OrchestrationProjection",
+      "features/orchestration/OrchestrationScreen"
     ],
     "voice": [
       "ui/DictationRecorder",
@@ -56,6 +59,11 @@
     "orchestration": ["OrchestrationActivity", "ui/OrchestrationEntry"],
     "voice": ["ui/DictationRecorder"],
     "updater": ["ui/AppUpdates"]
+  },
+  "sourceContracts": {
+    "features/orchestration/OrchestrationSession": "platform-free-state",
+    "features/orchestration/OrchestrationProjection": "pure-projection",
+    "features/orchestration/OrchestrationScreen": "presentation-only"
   },
   "platformInteropDependencies": {
     "ui/ImageViewer": ["PiApp"],

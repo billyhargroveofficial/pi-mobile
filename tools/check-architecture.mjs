@@ -5,6 +5,17 @@ import {fileURLToPath} from 'node:url';
 const project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const namespace='ru.billyhargrove.pimobile';
 const layerRules={core:new Set(['core']),store:new Set(['store','core']),media:new Set(['media','core']),net:new Set(['net','core','store','media'])};
+// Bounded source contracts complement feature ownership; they are not a Kotlin compiler.
+const sourceContractPeers={
+ 'platform-free-state':new Set(['platform-free-state','pure-projection']),
+ 'pure-projection':new Set(['pure-projection']),
+ 'presentation-only':new Set(['presentation-only','platform-free-state','pure-projection']),
+};
+const sourceContracts={
+ 'platform-free-state':{deny:['android','androidx',`${namespace}.net`,`${namespace}.store`,`${namespace}.media`,`${namespace}.ui`],allow:['androidx.compose.runtime']},
+ 'pure-projection':{deny:['android','androidx','kotlinx.coroutines',`${namespace}.net`,`${namespace}.store`,`${namespace}.media`,`${namespace}.ui`]},
+ 'presentation-only':{deny:['android','java.net','okhttp3',`${namespace}.net`,`${namespace}.store`],allow:[`${namespace}.net.MediaLoader`]},
+};
 
 // Skip comments/literals, but retain Kotlin interpolation expressions as code.
 // Nested quoted URLs inside ${...} must not hide subsequent wildcard references.
@@ -77,6 +88,38 @@ export function checkOwnerImports(relative,source,manifest,symbols={}){
  return errors;
 }
 
+export function checkSourceContract(relative,source,manifest,symbols={}){
+ const base=relative.slice((manifest.androidSourceRoot+'/').length).replace(/\.(java|kt)$/,''),name=manifest.sourceContracts?.[base];
+ if(!name)return [];
+ const contract=sourceContracts[name];if(!contract)return [`${relative}: unknown source contract ${name}`];
+ const clean=referenceCode(source).replace(/\bpackage\s+[\w.]+\s*;?/g,''),errors=[];
+ const imports=[...clean.matchAll(/\bimport\s+([\w.*]+)/g)].map(m=>m[1]);
+ const denied=ref=>contract.deny.some(prefix=>ref===prefix||ref.startsWith(prefix+'.'))&&!(contract.allow||[]).some(allowed=>ref===allowed||ref.startsWith(allowed+'.'));
+ // Wildcards into a denied package fail closed, even if one leaf is explicitly allowed.
+ const references=[...clean.matchAll(/\b(?:[a-zA-Z_]\w*\.)+[a-zA-Z_*]\w*/g)].map(m=>m[0]);
+ for(const [target,names] of Object.entries(symbols)){
+  const pkg=namespace+(path.posix.dirname(target)==='.'?'':'.'+path.posix.dirname(target).replaceAll('/','.'));
+  for(const symbol of [path.posix.basename(target),...names]){
+   const fq=pkg+'.'+symbol;
+   if(denied(fq)&&(imports.includes(pkg+'.*')||path.posix.dirname(base)===path.posix.dirname(target))&&new RegExp('\\b'+symbol+'\\b').test(clean))references.push(fq);
+  }
+ }
+ for(const ref of references)if(denied(ref))errors.push(`${relative}: ${name} must not reference ${ref}`);
+ const body=clean.replace(/\bimport\s+[\w.*]+(?:\s+as\s+\w+)?\s*;?/g,'');
+ for(const [target,role] of Object.entries(manifest.sourceContracts||{})){
+  if(target===base||sourceContractPeers[name].has(role))continue;
+  const pkg=namespace+(path.posix.dirname(target)==='.'?'':'.'+path.posix.dirname(target).replaceAll('/','.'));
+  const used=[path.posix.basename(target),...(symbols[target]||[])].some(symbol=>{
+   const fq=pkg+'.'+symbol,qualified=new RegExp('\\b'+fq.replaceAll('.','\\.')+'\\b').test(body);
+   const imported=imports.some(ref=>ref===fq||ref.startsWith(fq+'.'));
+   const visible=imports.includes(pkg+'.*')||path.posix.dirname(base)===path.posix.dirname(target);
+   return imported||qualified||visible&&new RegExp('\\b'+symbol+'\\b').test(body);
+  });
+  if(used)errors.push(`${relative}: ${name} must not depend on ${role} source ${target}`);
+ }
+ return [...new Set(errors)];
+}
+
 export function checkAndroidImports(relative,source){
  const errors=[],match=relative.match(/^android\/app\/src\/main\/java\/ru\/billyhargrove\/pimobile\/(.+)\.(java|kt)$/);
  if(!match)return errors;
@@ -121,6 +164,9 @@ export function checkArchitecture(root=project){
   if(assigned.get(api)!==owner)errors.push(`${api}: public API owner ${owner} does not match registered source owner`);
  }
  for(const root of manifest.compositionRoots||[])if(!assigned.has(root)||root.includes('/'))errors.push(`${root}: composition root must be an owned app entry point`);
+ for(const [source,contract] of Object.entries(manifest.sourceContracts||{})){
+  if(!assigned.has(source)||!Object.hasOwn(sourceContracts,contract))errors.push(`${source}: invalid source contract ${contract}`);
+ }
  for(const [source,targets] of Object.entries(manifest.platformInteropDependencies||{})){
   if(!assigned.has(source)||targets.some(target=>assigned.get(target)!=='app-shell'))errors.push(`${source}: invalid bounded platform interop dependency`);
  }
@@ -128,7 +174,7 @@ export function checkArchitecture(root=project){
   const first=base.split('/')[0];if(!assigned.has(base))errors.push(`${relative}: no source ownership registered`);
   if(first==='features'&&!Object.hasOwn(manifest.owners,base.split('/')[1]))errors.push(`${relative}: unknown feature capsule`);
   const source=text.get(file);
-  seen.set(base,(seen.get(base)||0)+1);errors.push(...checkAndroidImports(relative,source),...checkOwnerImports(relative,source,manifest,symbols));
+  seen.set(base,(seen.get(base)||0)+1);errors.push(...checkAndroidImports(relative,source),...checkOwnerImports(relative,source,manifest,symbols),...checkSourceContract(relative,source,manifest,symbols));
  }
  for(const [base,count] of seen)if(count>1)errors.push(`${base}: dual Java/Kotlin implementation`);
  for(const folder of ['server','extension','contracts'])for(const file of walk(path.join(root,folder)).filter(f=>/\.(mjs|js|ts)$/.test(f))){
