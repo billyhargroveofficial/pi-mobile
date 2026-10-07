@@ -32,7 +32,7 @@ object BubbleColors {
                 Text("Your bubble color", fontSize = 20.sp)
                 Text("Your messages will look like this.", Modifier.fillMaxWidth().background(Color(selected), RoundedCornerShape(24.dp)).padding(24.dp),
                     color = Color(foreground(selected)), fontSize = 16.sp)
-                OutlinedTextField(hex, { hex = it; if (it.matches(Regex("#[0-9a-fA-F]{6}"))) selected = AndroidColor.parseColor(it) },
+                TextField(hex, { hex = it; if (it.matches(Regex("#[0-9a-fA-F]{6}"))) selected = AndroidColor.parseColor(it) }, colors = PiFieldColors(),
                     label = { Text("Hex color · #RRGGBB") }, singleLine = true, isError = !valid, modifier = Modifier.fillMaxWidth())
                 val palette = listOf("Blue" to 0xff2f5de5, "Gray" to 0xff303030, "Green" to 0xff247653, "Purple" to 0xff7450bd, "Orange" to 0xffd89a4b, "Rose" to 0xffb75079)
                 palette.chunked(3).forEach { row -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

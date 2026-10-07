@@ -54,8 +54,17 @@ public class OrchestrationUiTest {
     if(moving.get())android.os.SystemClock.sleep(100);
    }
    assertFalse("Reader scroll did not settle",moving.get());idle();
-   java.util.List<UiObject2> visible=device.findObjects(By.textStartsWith("Context "));assertFalse(visible.isEmpty());
-   UiObject2 anchor=visible.get(visible.size()/2);String text=anchor.getText();int top=anchor.getVisibleBounds().top-device.findObject(By.res(context.getPackageName(),"orchestrationList")).getVisibleBounds().top;
+   // The elapsed-time ticker can invalidate Compose virtual accessibility IDs
+   // between findObjects and getText. Retry ONLY this pre-action observation;
+   // the prepend/live-update anchor assertions below retain their 2px tolerance.
+   String text=null;int top=0;
+   for(int attempt=0;attempt<5;attempt++){
+    if(android.os.Build.VERSION.SDK_INT>=33)InstrumentationRegistry.getInstrumentation().getUiAutomation().clearCache();
+    java.util.List<UiObject2> visible=device.findObjects(By.textStartsWith("Context "));assertFalse(visible.isEmpty());
+    try{UiObject2 anchor=visible.get(visible.size()/2);text=anchor.getText();top=anchor.getVisibleBounds().top-device.findObject(By.res(context.getPackageName(),"orchestrationList")).getVisibleBounds().top;break;}
+    catch(StaleObjectException transientNode){text=null;idle();}
+   }
+   assertNotNull("Reader anchor could not be observed after bounded accessibility refresh",text);
    JSONArray earlier=new JSONArray();for(int i=0;i<10;i++)earlier.put(line("old-"+i,"user","Older context "+i).put("turnId","older-turn"));
    JSONObject history=agentPage("running",earlier).put("hasMore",false);
    scenario.onActivity(a->a.renderAgent(history,true));idle();assertTrue(device.wait(Until.gone(By.res(context.getPackageName(),"agentLoadOlder")),3000));

@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.*
@@ -37,7 +38,7 @@ class ModelSettingsSheet(context: Context, private val config: JSONObject, priva
         Column(Modifier.fillMaxWidth().heightIn(max = (context.resources.displayMetrics.heightPixels / context.resources.displayMetrics.density * .85f).dp)
             .navigationBarsPadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text("Configure", Modifier.weight(1f), fontSize = 20.sp)
+                Text("Configure", Modifier.weight(1f), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                 IconButton(onClick = { dismiss() }, modifier = tag("closeModelPanel").size(48.dp)) {
                     Icon(painterResource(ru.billyhargrove.pimobile.R.drawable.ic_close), "Close model panel")
                 }
@@ -45,20 +46,22 @@ class ModelSettingsSheet(context: Context, private val config: JSONObject, priva
             Text(when { error.isNotEmpty() -> error; pending -> "Waiting for Pi to confirm…"; models.isEmpty() -> "Models unavailable. Run /reload in Pi when idle."
                 !idle -> "Wait for the current task to finish"; else -> "This session only" + if (config.optBoolean("modelsTruncated")) " · First 1,000 models" else "" },
                 fontSize = 12.sp, color = if (error.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-            if (models.size > 12) OutlinedTextField(query, { query = it }, singleLine = true, placeholder = { Text("Search models") },
+            if (models.size > 12) TextField(query, { query = it }, colors = PiFieldColors(), singleLine = true, placeholder = { Text("Search models") },
                 modifier = tag("modelSearch").fillMaxWidth())
-            LazyColumn(state = list, modifier = tag("modelSelector").fillMaxWidth().weight(1f, fill = false).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(22.dp))) {
+            LazyColumn(state = list, modifier = tag("modelSelector").fillMaxWidth().weight(1f, fill = false).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))) {
                 items(visible, key = ::key) { model ->
                     val chosen = selected?.let(::key) == key(model)
-                    Row(Modifier.fillMaxWidth().clickable(enabled = idle && !pending) { selected = model; error = "" }
+                    Row(Modifier.fillMaxWidth().background(if (chosen) MaterialTheme.colorScheme.surfaceVariant else androidx.compose.ui.graphics.Color.Transparent)
+                        .clickable(enabled = idle && !pending) { selected = model; error = "" }
                         .semantics { this.selected = chosen; contentDescription = model.optString("name", model.optString("id")) + ", " + model.optString("provider") + if (chosen) ", selected" else "" }
                         .padding(16.dp).heightIn(min = if (providers) 44.dp else 28.dp)) {
-                        Column(Modifier.weight(1f)) { Text(model.optString("name", model.optString("id")), fontSize = 16.sp); if (providers) Text(model.optString("provider"), fontSize = 11.sp) }
+                        Column(Modifier.weight(1f)) { Text(model.optString("name", model.optString("id")), fontSize = 16.sp, fontWeight = if (chosen) FontWeight.Medium else FontWeight.Normal)
+                            if (providers) Text(model.optString("provider"), Modifier.padding(top = 4.dp), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         if (chosen) Text("✓", fontSize = 22.sp)
                     }
                 }
             }
-            Text(if (selected == null) "Select a model" else EffortSlider.label(preferred) + " effort", fontSize = 16.sp)
+            Text(if (selected == null) "Select a model" else EffortSlider.label(preferred) + " effort", fontSize = 14.sp, fontWeight = FontWeight.Medium)
             val model = selected
             AndroidView(factory = { EffortSlider(it).apply { id = ru.billyhargrove.pimobile.R.id.effortSelector } },
                 update = { slider ->

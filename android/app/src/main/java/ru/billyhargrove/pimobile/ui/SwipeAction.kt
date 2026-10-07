@@ -23,8 +23,11 @@ fun SwipeAction(enabled: Boolean, label: String, onAction: () -> Unit, content: 
     SwipeToDismissBox(state, enableDismissFromStartToEnd = false, modifier = Modifier.clip(RoundedCornerShape(18.dp)).semantics {
         customActions = listOf(CustomAccessibilityAction(label) { onAction(); true })
     }, backgroundContent = {
-        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer).padding(horizontal = 24.dp), contentAlignment = Alignment.CenterEnd) {
-            Text(label, color = MaterialTheme.colorScheme.onErrorContainer)
-        }
+        // Do not paint a destructive surface behind a plain list while settled:
+        // rounded clipping can otherwise leak a faint red edge through its canvas.
+        if (state.dismissDirection == SwipeToDismissBoxValue.EndToStart)
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer).padding(horizontal = 24.dp), contentAlignment = Alignment.CenterEnd) {
+                Text(label, color = MaterialTheme.colorScheme.onErrorContainer)
+            }
     }) { content() }
 }

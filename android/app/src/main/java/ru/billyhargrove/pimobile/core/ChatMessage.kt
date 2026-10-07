@@ -25,6 +25,11 @@ class ChatMessage @JvmOverloads constructor(id: String?, role: Role?, text: Stri
     private var phase = "answer"
     private var preview = ""
     private var documentPath = ""
+    // Private local queue marker; never a wire or agent-control capability.
+    private var queueBaseline: List<String>? = null
+    fun queued() = queueBaseline != null
+    fun queueBaseline(): List<String> = queueBaseline.orEmpty()
+    fun withQueue(baseline: List<String>?): ChatMessage = apply { queueBaseline = baseline?.toList() }
     fun id() = id
     fun role() = role
     fun text() = text
@@ -43,16 +48,16 @@ class ChatMessage @JvmOverloads constructor(id: String?, role: Role?, text: Stri
     fun withPresentation(turn: String?, phase: String?, preview: String?, document: String?) =
         ChatMessage(id, role, text, images, toolName, localState, requestId, toolStatus).apply {
             turnId = turn ?: "legacy"; this.phase = phase ?: "answer"
-            this.preview = preview.orEmpty(); documentPath = document.orEmpty()
+            this.preview = preview.orEmpty(); documentPath = document.orEmpty(); queueBaseline = this@ChatMessage.queueBaseline
         }
     fun withLocalState(state: LocalState?) = ChatMessage(id, role, text, images, toolName, state, requestId, toolStatus)
-        .withPresentation(turnId, phase, preview, documentPath)
+        .withPresentation(turnId, phase, preview, documentPath).withQueue(queueBaseline)
     override fun equals(other: Any?) = other is ChatMessage && id == other.id && role == other.role &&
         text == other.text && images == other.images && toolName == other.toolName && toolStatus == other.toolStatus &&
         localState == other.localState && requestId == other.requestId && turnId == other.turnId &&
-        phase == other.phase && preview == other.preview && documentPath == other.documentPath
+        phase == other.phase && preview == other.preview && documentPath == other.documentPath && queueBaseline == other.queueBaseline
     override fun hashCode() = java.util.Objects.hash(id, role, text, images, toolName, toolStatus, localState,
-        requestId, turnId, phase, preview, documentPath)
+        requestId, turnId, phase, preview, documentPath, queueBaseline)
     override fun toString() = "ChatMessage{$id, $role, $localState, ${text.length} chars}"
     companion object {
         @JvmStatic fun remote(id: String?, role: Role?, text: String?, images: List<ImageRef>?, toolName: String?) =

@@ -113,14 +113,18 @@ class HotfixUiTest {
         launch().use { scenario ->
             ready(scenario); node("effortButton").click()
             var slider = node("quickEffortSlider").visibleBounds
-            device.click(slider.right - 30, slider.centerY()); idle(); node("effortPending")
+            device.click(slider.right - 30, slider.centerY()); idle()
+            assertFalse(device.hasObject(By.res(context.packageName, "effortPending")))
+            assertFalse(device.hasObject(By.textContains("Waiting for Pi")))
+            assertFalse("The panel still guards an unconfirmed change", node("popupModelButton").isEnabled)
             scenario.onActivity { it.onConfiguration(session, config("high")); it.onAck(Ack("config-1", session, true, "")) }; idle()
             assertFalse(device.hasObject(By.res(context.packageName, "chatNotice")))
             slider = node("quickEffortSlider").visibleBounds
             screenshot("effort-persistent")
             device.click(slider.left + 30, slider.centerY()); idle()
             scenario.onActivity { it.onAck(Ack("config-2", session, false, "Rejected synthetic change")) }; idle()
-            node("effortError"); node("quickEffortSlider")
+            assertTrue("A rejected change is shown at the TOP of its panel", node("effortError").visibleBounds.bottom <= node("popupModelButton").visibleBounds.top)
+            node("quickEffortSlider")
             node("closeEffortPanel").click()
             assertTrue(device.wait(Until.gone(By.res(context.packageName, "quickEffortSlider")), 5000))
         }

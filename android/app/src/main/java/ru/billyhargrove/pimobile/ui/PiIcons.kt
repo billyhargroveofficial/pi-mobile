@@ -1,7 +1,7 @@
 package ru.billyhargrove.pimobile.ui
 
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -21,8 +21,8 @@ fun CircleIcon(icon: Int, description: String, tag: String, enabled: Boolean = t
     val interaction = remember { MutableInteractionSource() }; val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) .92f else 1f, if (ExpressiveMotion.enabled()) spring(.7f, 500f) else snap(), label = "iconPress")
     IconButton(onClick, enabled = enabled, interactionSource = interaction, modifier = Modifier.size(48.dp).scale(scale)
-        .border(1.dp, colorResource(R.color.outline_soft), CircleShape).testTag(tag).clearAndSetSemantics {
+        .background(androidx.compose.ui.graphics.Color.Transparent, CircleShape).testTag(tag).clearAndSetSemantics {
             testTagsAsResourceId = true; contentDescription = description; role = Role.Button
             if (enabled) onClick { onClick(); true } else disabled()
-        }) { Icon(painterResource(icon), null, modifier = Modifier.size(24.dp), tint = colorResource(R.color.text_primary)) }
+        }) { Icon(painterResource(icon), null, modifier = Modifier.size(22.dp), tint = colorResource(R.color.text_primary)) }
 }

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#000000</color><color name="surface">#212121</color><color name="surface_alt">#303030</color><color name="surface_input">#303030</color>
-    <color name="outline">#777777</color><color name="outline_soft">#484848</color>
+    <color name="bg">#000000</color><color name="surface">#171717</color><color name="surface_alt">#242424</color><color name="surface_input">#171717</color>
+    <color name="outline">#777777</color><color name="outline_soft">#333333</color>
     <color name="text_primary">#F5F5F5</color><color name="text_secondary">#B4B4B4</color><color name="text_hint">#969696</color>
     <color name="accent">#FFFFFF</color><color name="on_accent">#141414</color><color name="accent_pressed">#D8D8D8</color><color name="accent_soft">#303030</color><color name="on_accent_soft">#FFFFFF</color>
     <color name="secondary">#B4B4B4</color><color name="secondary_soft">#303030</color><color name="on_secondary_soft">#F5F5F5</color>
-    <color name="bubble_user">#2F5DE5</color><color name="bubble_assistant">#303030</color><color name="bubble_tool">#242424</color><color name="bubble_custom">#212121</color>
+    <color name="bubble_user">#2F5DE5</color><color name="bubble_assistant">@color/bg</color><color name="bubble_tool">@color/surface</color><color name="bubble_custom">@color/surface</color>
     <color name="success">#73D59A</color><color name="warning">#E4BE78</color><color name="danger">#F39A91</color><color name="danger_soft">#522B28</color>
 </resources>

@@ -37,10 +37,12 @@ fun TierChoice(value: String, enabled: Boolean, choose: (String) -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for (tier in listOf("standard", "fast")) {
                 val name = if (tier == "fast") "Fast" else "Standard"
-                OutlinedButton(onClick = { choose(tier) }, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                TextButton(onClick = { choose(tier) }, enabled = enabled,
+                    colors = ButtonDefaults.textButtonColors(containerColor = if (value == tier) MaterialTheme.colorScheme.surfaceVariant else androidx.compose.ui.graphics.Color.Transparent),
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                     .testTag("${context.packageName}:id/${if (tier == "fast") "tierFast" else "tierStandard"}")
                     .semantics { testTagsAsResourceId = true; selected = value == tier; contentDescription = name + if (value == tier) ", selected" else "" }) {
-                    Text(if (tier == "fast") "ϟ Fast" else name)
+                    Text((if (value == tier) "✓ " else "") + if (tier == "fast") "ϟ Fast" else name)
                 }
             }
         }

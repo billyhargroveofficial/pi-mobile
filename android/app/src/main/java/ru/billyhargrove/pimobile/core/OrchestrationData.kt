@@ -19,6 +19,13 @@ object OrchestrationData {
         return (if (flows > 0) "$flows workflow${if (flows == 1) "" else "s"} · " else "") +
             "$agents agent${if (agents == 1) "" else "s"}" + if (running > 0) " · $running running" else ""
     }
+    @JvmStatic fun activeWorkflows(data: JSONObject): List<JSONObject> =
+        if (!data.optBoolean("liveAvailable")) emptyList() else objects(data.optJSONArray("workflows")).filter { active(it.optString("status")) }
+    @JvmStatic fun activeStandalone(data: JSONObject): List<JSONObject> {
+        if (!data.optBoolean("liveAvailable")) return emptyList()
+        val workflows = activeWorkflows(data).mapTo(hashSetOf()) { it.optString("id") }
+        return agents(data, null).filter { active(it.optString("status")) && it.optString("workflowId") !in workflows }
+    }
     @JvmStatic fun shortModel(model: String) = model.substringAfterLast('/')
     @JvmStatic fun duration(agent: JSONObject, now: Long): String {
         val start = agent.optLong("startedAt"); val end = agent.optLong("finishedAt")
@@ -30,6 +37,11 @@ object OrchestrationData {
             else -> "${seconds}s"
         }
     }
+    @JvmStatic fun metrics(agent: JSONObject, now: Long): String = buildList {
+        if (agent.has("toolCalls")) add("${agent.optLong("toolCalls").coerceAtLeast(0)} tools")
+        if (agent.has("outputTokens")) add("${agent.optLong("outputTokens").coerceAtLeast(0)} tokens")
+        duration(agent, now).takeIf(String::isNotEmpty)?.let(::add)
+    }.joinToString(" · ")
     @JvmStatic fun details(agent: JSONObject): String = buildList {
         shortModel(agent.optString("model")).takeIf(String::isNotEmpty)?.let(::add)
         agent.optString("thinkingLevel").takeIf(String::isNotEmpty)?.let(::add)

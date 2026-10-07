@@ -93,7 +93,7 @@ class AppUpdates(private val activity: AppCompatActivity) {
                 Text("Updating Pi Mobile", fontSize = 22.sp)
                 LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth())
                 Text("Downloading · $progress%")
-                OutlinedButton(onClick = { cancelDownload(); dismiss() }) { Text("Cancel") }
+                TextButton(onClick = { cancelDownload(); dismiss() }) { Text("Cancel") }
             }
         } } }.apply { setOnCancelListener { cancelDownload() }; show() }
         AppExecutors.io().execute {

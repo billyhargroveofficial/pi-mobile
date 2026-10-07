@@ -31,6 +31,8 @@ object ChatFixture {
         // Otherwise a late restore can overwrite a synthetic timeline halfway through a UI test.
         PiApp.get(activity).client().clearListener(activity)
         PiApp.get(activity).client().disconnect()
+        val discovery = ChatActivity::class.java.getDeclaredField("orchestration").apply { isAccessible = true }.get(activity) as ru.billyhargrove.pimobile.ui.OrchestrationEntry
+        discovery.stop(); discovery.render(JSONObject())
         val effect = ChatActivity::class.java.getDeclaredMethod("effect", ChatSession.Effect::class.java).apply { isAccessible = true }
         val chat = ChatSession(session, "Проверка дизайна", readOnly, Transport(), initial, {}, { effect.invoke(activity, it) })
         chat.onSnapshot(Snapshot(session, SessionStatus.IDLE, true, emptyList(), false))
@@ -46,6 +48,10 @@ object ChatFixture {
         val field = ChatActivity::class.java.getDeclaredField("chatState").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST") val state = field.get(activity) as MutableState<ChatSession?>
         state.value = chat
+    }
+    @JvmStatic fun orchestration(activity: ChatActivity, data: JSONObject) {
+        val field = ChatActivity::class.java.getDeclaredField("orchestration").apply { isAccessible = true }
+        (field.get(activity) as ru.billyhargrove.pimobile.ui.OrchestrationEntry).render(data)
     }
     @JvmStatic fun state(activity: ChatActivity): ChatSession {
         val field = ChatActivity::class.java.getDeclaredField("chatState").apply { isAccessible = true }

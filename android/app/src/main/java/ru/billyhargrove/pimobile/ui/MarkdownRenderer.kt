@@ -29,6 +29,14 @@ class MarkdownRenderer(context: Context, links: Links) {
             builder.inlinesEnabled(true); builder.executorService(executor); builder.theme().textColor(context.getColor(R.color.text_primary))
         }).usePlugin(TablePlugin.create(context)).usePlugin(StrikethroughPlugin.create()).usePlugin(TaskListPlugin.create(context))
         .usePlugin(object : AbstractMarkwonPlugin() {
+            override fun configureTheme(builder: io.noties.markwon.core.MarkwonTheme.Builder) {
+                // Inline backticks are typography, not per-line gray selection rectangles.
+                // Fenced code remains a distinct document block.
+                // Markwon 4.6 treats integer zero as "use default", so keep a
+                // nonzero RGB with alpha zero to actually disable the background.
+                builder.codeBackgroundColor(0x00ffffff)
+                    .codeBlockBackgroundColor(context.getColor(R.color.surface_alt))
+            }
             override fun configureConfiguration(builder: MarkwonConfiguration.Builder) { builder.linkResolver { _, link -> links.open(link) } }
         }).build()
     fun render(view: TextView, source: String?) {

@@ -6,6 +6,24 @@ import org.junit.Test
 import ru.billyhargrove.pimobile.core.*
 
 class CatalogSessionTest {
+    @Test fun hostTitleTracksConnectionRatherThanAnUnsubmittedDraft() {
+        val owner = CatalogSession(Transport(), "https://first.example", true) {}
+        assertEquals("first.example", owner.hostLabel())
+        owner.onConnectionState(ConnectionState.CONNECTED, "https://confirmed.example:8443")
+        owner.url = "https://draft.example"
+        assertEquals("confirmed.example:8443", owner.hostLabel())
+        owner.onConnectionState(ConnectionState.RECONNECTING, "Retrying in 2 s")
+        assertEquals("confirmed.example:8443", owner.hostLabel())
+        owner.connect()
+        assertEquals("draft.example", owner.hostLabel())
+    }
+    @Test fun hostTitleNeverRendersCredentialsPathOrQueryAndSupportsIpv6() {
+        val owner = CatalogSession(Transport(), "https://user:private@host.example:8443/path?private=value", true) {}
+        assertEquals("host.example:8443", owner.hostLabel())
+        owner.onConnectionState(ConnectionState.CONNECTED, "https://[2001:db8::1]:8443")
+        assertEquals("[2001:db8::1]:8443", owner.hostLabel())
+        assertEquals("Host not configured", CatalogSession(Transport(), "not an endpoint", false) {}.hostLabel())
+    }
     @Test fun openingSettingsWhileConnectedDoesNotImmediatelyCloseIt() {
         val owner = CatalogSession(Transport(), "https://example.invalid", true) {}
         owner.screen = CatalogSession.Screen.Settings

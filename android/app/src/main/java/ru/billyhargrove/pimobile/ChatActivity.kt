@@ -85,15 +85,15 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
             setContent { PiTheme {
                 chatState.value?.let { current ->
                     ChatScreen(current, transcriptList, app.mediaLoader(), behavior,
-                        { behavior = it; app.settings().setBehavior(it) }, orchestration.summary,
-                        { startActivity(OrchestrationActivity.intent(this@ChatActivity, session, "", "", "Orchestration")) },
+                        { behavior = it; app.settings().setBehavior(it) }, orchestration.snapshot,
+                        { kind, id, title -> startActivity(OrchestrationActivity.intent(this@ChatActivity, session, kind, id, title)) },
                         { finish() }, { imagePicker.launch(arrayOf("*/*")) }, ::requestDictation, ::quickEffort, ::onDocument)
                 }
             } }
         }
         setContentView(root)
-        // Compose owns the top inset; the platform root follows IME/nav at the bottom.
-        SystemInsets.apply(this, root, null, null, false)
+        // The transcript owns the whole canvas; Compose floats controls above IME/nav.
+        SystemInsets.apply(this, root, null, null, false, composeOwnsInsets = true)
         val enter = com.google.android.material.transition.platform.MaterialSharedAxis(com.google.android.material.transition.platform.MaterialSharedAxis.X, true)
         enter.duration = if (ExpressiveMotion.enabled()) 350 else 0
         window.enterTransition = enter

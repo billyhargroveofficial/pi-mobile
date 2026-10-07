@@ -15,6 +15,7 @@ object TranscriptReconciler {
     }
     @JvmStatic fun isUncertain(message: ChatMessage?) = message != null &&
         message.localState() in setOf(ChatMessage.LocalState.SENDING, ChatMessage.LocalState.UNCERTAIN)
+    @JvmStatic fun sameContent(first: ChatMessage, second: ChatMessage) = key(first) == key(second)
     private fun key(message: ChatMessage): String {
         var text = message.text()
         if (message.hasImages()) {

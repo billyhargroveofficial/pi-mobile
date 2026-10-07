@@ -2,8 +2,14 @@ package ru.billyhargrove.pimobile.ui
 
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.res.ColorStateList
+import android.os.Build
+import com.google.android.material.shape.MaterialShapeDrawable
+import ru.billyhargrove.pimobile.R
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.lifecycle.setViewTreeLifecycleOwner
@@ -20,9 +26,17 @@ open class ComposeSheet(context: Context) : BottomSheetDialog(context) {
         val view = ComposeView(context).apply {
             if (owner != null) { setViewTreeLifecycleOwner(owner); setViewTreeSavedStateRegistryOwner(owner) }
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
-            setContent { PiTheme(body) }
+            setContent { PiTheme { Surface(color = MaterialTheme.colorScheme.surface) { body() } } }
         }
         setContentView(view)
-        setOnShowListener { behavior.state = BottomSheetBehavior.STATE_EXPANDED; behavior.skipCollapsed = true }
+        setOnShowListener {
+            behavior.state = BottomSheetBehavior.STATE_EXPANDED; behavior.skipCollapsed = true
+            val shade = context.getColor(R.color.surface)
+            val background = findViewById<android.view.View>(com.google.android.material.R.id.design_bottom_sheet)?.background
+            if (background is MaterialShapeDrawable) background.fillColor = ColorStateList.valueOf(shade)
+            else background?.setTint(shade)
+            window?.navigationBarColor = shade
+            if (Build.VERSION.SDK_INT >= 29) window?.isNavigationBarContrastEnforced = false
+        }
     }
 }

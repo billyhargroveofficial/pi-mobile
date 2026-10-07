@@ -26,7 +26,10 @@ object PendingMessageCodec {
                             add(ImageRef(url, mimes.getString(image)))
                         }
                     }
-                    ChatMessage.local(id, record.getString("text"), images, state)
+                    ChatMessage.local(id, record.getString("text"), images, state).apply {
+                        if (record.optBoolean("queued")) withQueue((0 until (record.optJSONArray("queueBaseline")?.length() ?: 0))
+                            .mapNotNull { record.optJSONArray("queueBaseline")?.optString(it)?.takeIf(String::isNotEmpty) }.takeLast(1500))
+                    }
                 }.getOrNull()
                 if (receipt != null) add(receipt)
             }
@@ -38,7 +41,8 @@ object PendingMessageCodec {
             put(JSONObject().put("id", message.requestId()).put("text", message.text())
                 .put("state", message.localState().name)
                 .put("images", JSONArray(message.images().map { it.mimeType() }))
-                .put("imageUrls", JSONArray(message.images().map { it.url() })))
+                .put("imageUrls", JSONArray(message.images().map { it.url() }))
+                .put("queued", message.queued()).put("queueBaseline", JSONArray(message.queueBaseline())))
         }
     }.toString()
 }

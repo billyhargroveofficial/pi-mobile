@@ -85,7 +85,7 @@ public class ExpressiveUiTest {
 }
 
     @Test public void compactComposerAndWorkingBadge() throws Exception {
-    try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(chat())){scenario.onActivity(ChatFixture::prepareLoading);idle();assertEquals(48*density(),node("composerEditor").getVisibleBounds().height(),1);
+    try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(chat())){scenario.onActivity(ChatFixture::prepareLoading);idle();assertEquals("Writing row + action row",96*density(),node("composerEditor").getVisibleBounds().height(),1);
         org.json.JSONObject frame=new org.json.JSONObject().put("sessionId","ui-test-no-agent").put("activeTurnId","turn").put("turns",new org.json.JSONArray().put(new org.json.JSONObject().put("id","turn").put("startedAt",System.currentTimeMillis()-1588000)));
         scenario.onActivity(a->{a.onTimelineMeta(frame);assertEquals("turn",ChatFixture.state(a).getMetadata().optString("activeTurnId"));});assertTrue(device.wait(Until.hasObject(By.textStartsWith("Working · 26m")),5000));device.takeScreenshot(new java.io.File(context.getExternalFilesDir(null),"chat-working-duration.png"));assertFalse(device.hasObject(By.res(context.getPackageName(),"historySpinner")));
     }
@@ -131,8 +131,8 @@ public class ExpressiveUiTest {
     @Test public void workBubbleFitsSmallLogsAndCapsLargeLogs() {
     try(ActivityScenario<ChatActivity> scenario=ActivityScenario.launch(chat())){scenario.onActivity(ChatFixture::prepareLoading);
         scenario.onActivity(a->ChatFixture.show(a,toolMessages(2)));idle();assertTrue(node("workLogList").getVisibleBounds().height()<=50*density());assertTrue(node("workLogList").getVisibleBounds().height()>=40*density()-1);
-        scenario.onActivity(a->ChatFixture.show(a,toolMessages(40)));assertTrue(device.wait(Until.hasObject(By.text("Tools · 40")),5000));assertEquals(200*density(),settledBounds("workLogList").height(),1);
-        scenario.onActivity(a->ChatFixture.show(a,toolMessages(1)));assertTrue(device.wait(Until.hasObject(By.text("Tools · 1")),5000));assertTrue(settledBounds("workLogList").height()<=30*density());
+        scenario.onActivity(a->ChatFixture.show(a,toolMessages(40)));assertTrue(device.wait(Until.hasObject(By.res(context.getPackageName(),"workToolCount").text("40")),5000));assertEquals(200*density(),settledBounds("workLogList").height(),1);
+        scenario.onActivity(a->ChatFixture.show(a,toolMessages(1)));assertTrue(device.wait(Until.hasObject(By.res(context.getPackageName(),"workToolCount").text("1")),5000));assertTrue(settledBounds("workLogList").height()<=30*density());
     }
 }
 
@@ -177,7 +177,7 @@ public class ExpressiveUiTest {
     }
 
     @Test public void paletteUsesFixedNeutralColors() {
-        try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){scenario.onActivity(a->CatalogFixture.install(a,ru.billyhargrove.pimobile.core.Catalog.empty()));scenario.onActivity(a->{boolean dark=(a.getResources().getConfiguration().uiMode&android.content.res.Configuration.UI_MODE_NIGHT_MASK)==android.content.res.Configuration.UI_MODE_NIGHT_YES;assertEquals(android.graphics.Color.parseColor(dark?"#FFFFFF":"#171717"),a.getColor(R.color.accent));assertEquals(android.graphics.Color.parseColor(dark?"#000000":"#FFFFFF"),a.getColor(R.color.bg));assertEquals(android.graphics.Color.parseColor(dark?"#303030":"#F4F4F4"),a.getColor(R.color.bubble_assistant));});}
+        try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){scenario.onActivity(a->CatalogFixture.install(a,ru.billyhargrove.pimobile.core.Catalog.empty()));scenario.onActivity(a->{boolean dark=(a.getResources().getConfiguration().uiMode&android.content.res.Configuration.UI_MODE_NIGHT_MASK)==android.content.res.Configuration.UI_MODE_NIGHT_YES;assertEquals(android.graphics.Color.parseColor(dark?"#FFFFFF":"#171717"),a.getColor(R.color.accent));assertEquals(android.graphics.Color.parseColor(dark?"#000000":"#FFFFFF"),a.getColor(R.color.bg));assertEquals("Assistant content stays on the canvas",a.getColor(R.color.bg),a.getColor(R.color.bubble_assistant));});}
     }
 
     @Test public void modelListChangesEffortRangeAndWaitsForDone() throws Exception {

@@ -12,6 +12,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.*
 import androidx.compose.ui.res.painterResource
@@ -68,7 +70,10 @@ class EffortPopup(anchor: View, anchorBounds: Supplier<Rect>, initialModel: JSON
         root.addView(ComposeView(context).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
             setContent { PiTheme {
-                Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(24.dp)).padding(16.dp)) {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surface)
+                    .padding(16.dp)) {
+                    if (error.isNotEmpty()) Text(error, tag("effortError").padding(bottom = 8.dp)
+                        .semantics { liveRegion = LiveRegionMode.Polite }, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
                     Row(Modifier.fillMaxWidth()) {
                         TextButton(onClick = { openModels.run() }, enabled = !pending,
                             modifier = tag("popupModelButton").weight(1f).heightIn(min = 48.dp)) {
@@ -76,7 +81,7 @@ class EffortPopup(anchor: View, anchorBounds: Supplier<Rect>, initialModel: JSON
                         }
                         if (TierToggle.supportsFast(model.optJSONArray("serviceTiers")) && changeTier != null) {
                             val fast = tier == "fast"
-                            OutlinedButton(onClick = {
+                            TextButton(onClick = {
                                 tier = if (fast) "standard" else "fast"; pending = true; error = ""; changeTier.accept(tier)
                             }, enabled = editable && !pending,
                                 modifier = tag("quickTierButton").heightIn(min = 48.dp).semantics { contentDescription = "Processing tier: ${if (fast) "Fast" else "Standard"}. Switch to ${if (fast) "Standard" else "Fast"}" }) {
@@ -88,8 +93,8 @@ class EffortPopup(anchor: View, anchorBounds: Supplier<Rect>, initialModel: JSON
                         }
                     }
                     Row(tag("effortTitle").padding(top = 12.dp, bottom = 16.dp)) {
-                        Text("Effort  ", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(EffortSlider.label(selected), fontSize = 18.sp, color = Color(if (selected in listOf("max", "xhigh")) 0xffacb6ff else 0xfff38ac5))
+                        Text("Effort  ", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(EffortSlider.label(selected), fontSize = 16.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
                     }
                     Row(Modifier.fillMaxWidth()) {
                         Text("Faster", Modifier.weight(1f), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -112,18 +117,13 @@ class EffortPopup(anchor: View, anchorBounds: Supplier<Rect>, initialModel: JSON
                         if (index >= 0 && slider.getProgress() != index) slider.setProgress(index)
                         slider.isEnabled = editable && !pending && (levels?.length() ?: 0) > 1
                     }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(64.dp))
-                    if (pending) Row(tag("effortPending").padding(top = 8.dp)) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Text("Waiting for Pi…", Modifier.padding(start = 8.dp), fontSize = 12.sp)
-                    }
-                    if (error.isNotEmpty()) Text(error, tag("effortError").padding(top = 8.dp), fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
                 }
             } }
         }, FrameLayout.LayoutParams(-1, -2))
         contentView = root
         val frame = Rect(); anchor.getWindowVisibleDisplayFrame(frame)
         width = frame.width() - 2 * pad; height = -2
-        setBackgroundDrawable(ColorDrawable(AndroidColor.TRANSPARENT)); elevation = 12 * density
+        setBackgroundDrawable(ColorDrawable(AndroidColor.TRANSPARENT)); elevation = 8 * density
         isFocusable = false; isOutsideTouchable = true; inputMethodMode = INPUT_METHOD_NEEDED; softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
         showAtLocation(anchor, Gravity.TOP or Gravity.LEFT, frame.left + pad, frame.top)
         root.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {

@@ -3,11 +3,13 @@ package ru.billyhargrove.pimobile.ui
 import android.graphics.Bitmap
 import android.widget.TextView
 import java.util.Locale
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,6 +25,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -78,10 +81,13 @@ fun PiTranscript(
             state.scrollBy(Float.MAX_VALUE)
         }
     }
+    // Receipt belongs to the newest USER submission, not each historical bubble.
+    // A newer unacknowledged message hides the previous receipt instead of implying delivery.
+    val lastUserKey = items.lastOrNull { it.row.message?.role() == ChatMessage.Role.USER }?.row?.message?.stableKey()
     LazyColumn(modifier, state = state, contentPadding = contentPadding) {
         items(items, key = { it.row.key }, contentType = { if (it.row.header) "tools" else "message" }) { item ->
             if (item.row.header) ToolGroup(item, markdown) { onToggle(item.row.group) }
-            else item.row.message?.let { MessageBubble(it, markdown, loader, actions) }
+            else item.row.message?.let { MessageBubble(it, markdown, loader, actions, it.stableKey() == lastUserKey) }
         }
     }
 }
@@ -90,7 +96,7 @@ fun PiTranscript(
 private fun ToolGroup(item: TranscriptPresentation.Item, markdown: MarkdownRenderer, onToggle: () -> Unit) {
     val context = LocalContext.current
     val tagPrefix = "${context.packageName}:id/"
-    val background = colorResource(R.color.bubble_tool)
+    val background = colorResource(R.color.bg)
     // Keep scroll state while collapsed and while an offscreen LazyColumn item is disposed.
     val logState = rememberLazyListState()
     val wasAtBottom = rememberSaveable { mutableStateOf(true) }
@@ -107,15 +113,25 @@ private fun ToolGroup(item: TranscriptPresentation.Item, markdown: MarkdownRende
             initialized = true
         }
     }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
-        .clip(RoundedCornerShape(20.dp)).background(background).padding(horizontal = 12.dp)) {
-        Text("Tools · ${item.row.count}", fontSize = 12.sp, color = colorResource(R.color.text_primary),
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                .clickable(onClick = onToggle).testTag(tagPrefix + "workHeader")
-                .semantics {
-                    contentDescription = if (item.expanded) "Collapse tools" else "Expand tools"
-                    stateDescription = if (item.expanded) "Expanded" else "Collapsed"
-                }.wrapContentHeight(Alignment.CenterVertically))
+    val lastTool = item.tools.lastOrNull { it.role() == ChatMessage.Role.TOOL_RESULT && it.toolName().isNotBlank() }?.toolName() ?: "Activity"
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp).testTag(tagPrefix + "toolSegment")) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onToggle)
+            .testTag(tagPrefix + "workHeader").semantics {
+                contentDescription = if (item.expanded) "Collapse tools" else "Expand tools"
+                stateDescription = "${if (item.expanded) "Expanded" else "Collapsed"}, $lastTool, ${item.row.count} calls"
+            }, verticalAlignment = Alignment.CenterVertically) {
+            AnimatedContent(lastTool, modifier = Modifier.weight(1f, fill = false).clipToBounds(), transitionSpec = {
+                if (!ExpressiveMotion.enabled()) EnterTransition.None togetherWith ExitTransition.None
+                else (slideInVertically(tween(180)) { it } + fadeIn(tween(180))) togetherWith
+                    (slideOutVertically(tween(180)) { -it } + fadeOut(tween(140)))
+            }, label = "lastToolRoller") { name ->
+                Text(name, Modifier.testTag(tagPrefix + "workToolName"), fontSize = 12.sp, lineHeight = 16.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, color = colorResource(R.color.text_secondary))
+            }
+            Text("${item.row.count}", Modifier.padding(start = 8.dp).testTag(tagPrefix + "workToolCount"),
+                fontSize = 12.sp, lineHeight = 16.sp, color = colorResource(R.color.text_secondary))
+        }
         AnimatedVisibility(item.expanded) {
             Box {
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 200.dp).testTag(tagPrefix + "workLogList"),
@@ -186,18 +202,22 @@ private fun ToolGlyph(tool: String, error: Boolean) {
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage, markdown: MarkdownRenderer, loader: MediaLoader, actions: TranscriptActions?) {
+private fun MessageBubble(message: ChatMessage, markdown: MarkdownRenderer, loader: MediaLoader, actions: TranscriptActions?, latestUser: Boolean) {
     val context = LocalContext.current
     val user = message.role() == ChatMessage.Role.USER
     val bubble = if (user) Color(BubbleColors.color(context)) else colorResource(R.color.bubble_assistant)
     val ink = if (user) Color(BubbleColors.foreground(BubbleColors.color(context))) else colorResource(R.color.text_primary)
-    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-        val maxBubbleWidth = minOf(584.dp, maxWidth - 16.dp)
-        Column(Modifier.align(if (user) Alignment.CenterEnd else Alignment.CenterStart).widthIn(max = maxBubbleWidth)) {
-            Column(Modifier.widthIn(max = maxBubbleWidth).testTag("${context.packageName}:id/messageBubble")
-                .clip(RoundedCornerShape(24.dp)).background(bubble).padding(12.dp)) {
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = if (user) 8.dp else 10.dp)) {
+        val maxBubbleWidth = minOf(584.dp, if (user) maxWidth - 24.dp else maxWidth)
+        Column(Modifier.align(if (user) Alignment.CenterEnd else Alignment.CenterStart).widthIn(max = maxBubbleWidth)
+            .then(if (user) Modifier else Modifier.fillMaxWidth().testTag("${context.packageName}:id/assistantMessage"))) {
+            // The assistant is document content; only user messages carry a bubble surface.
+            val container = if (user) Modifier.widthIn(max = maxBubbleWidth)
+                .clip(RoundedCornerShape(20.dp)).background(bubble).padding(horizontal = 16.dp, vertical = 12.dp)
+                else Modifier.fillMaxWidth()
+            Column(container.testTag("${context.packageName}:id/messageBubble")) {
             if (message.text().isNotEmpty()) {
-                if (user) SelectionContainer { Text(message.text(), color = ink, fontSize = 15.sp, lineHeight = 20.sp) }
+                if (user) SelectionContainer { Text(message.text(), color = ink, fontSize = 16.sp, lineHeight = 23.sp) }
                 else NativeMarkdown(message.text(), markdown, ink)
             }
             message.images().take(3).forEachIndexed { index, image ->
@@ -206,12 +226,12 @@ private fun MessageBubble(message: ChatMessage, markdown: MarkdownRenderer, load
                 TranscriptImage(image.url(), index, loader, minOf(240.dp, maxBubbleWidth - 24.dp), local)
             }
             }
-            if (user && message.localState() in setOf(ChatMessage.LocalState.NONE, ChatMessage.LocalState.ACCEPTED)) Text("read",
+            if (user && latestUser && message.localState() in setOf(ChatMessage.LocalState.NONE, ChatMessage.LocalState.ACCEPTED)) Text("read",
                 color = colorResource(R.color.text_secondary), fontSize = 10.sp, lineHeight = 12.sp,
                 modifier = Modifier.align(Alignment.End).padding(top = 2.dp, end = 8.dp)
                     .testTag("${context.packageName}:id/messageRead")
                     .semantics { contentDescription = "Accepted by Pi; not task completion" })
-            else if (message.isLocal) {
+            else if (message.isLocal && message.localState() != ChatMessage.LocalState.ACCEPTED) {
                 Text(StatusUi.localStateLabel(context, message.localState()), fontSize = 11.sp,
                     color = Color(StatusUi.localStateColor(context, message.localState())),
                     modifier = Modifier.align(Alignment.End).padding(top = 6.dp))
@@ -228,12 +248,13 @@ private fun MessageBubble(message: ChatMessage, markdown: MarkdownRenderer, load
 
 /** The only View leaf: vetted Markwon tables/LaTeX, no HTML, JS or remote image plugin. */
 @Composable
-private fun NativeMarkdown(text: String, markdown: MarkdownRenderer, ink: Color, textSizeSp: Float = 15f) {
+private fun NativeMarkdown(text: String, markdown: MarkdownRenderer, ink: Color, textSizeSp: Float = 16f) {
     AndroidView(factory = { context -> TextView(context).apply {
         id = R.id.messageText
         textSize = textSizeSp
         setTextIsSelectable(true)
-        setLineSpacing(2 * resources.displayMetrics.density, 1f)
+        setLineSpacing(5 * resources.displayMetrics.scaledDensity, 1f)
+        includeFontPadding = false
     } }, update = { view -> view.setTextColor(ink.toArgb()); markdown.render(view, text) },
         modifier = Modifier.widthIn(max = 560.dp))
 }

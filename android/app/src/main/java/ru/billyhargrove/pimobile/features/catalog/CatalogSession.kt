@@ -30,6 +30,15 @@ class CatalogSession(private val transport: Transport, initialUrl: String, confi
     private data class Action(val session: String, val success: () -> Unit, val failure: (String) -> Unit)
     var screen by mutableStateOf(if (configured) Screen.Catalog else Screen.Settings)
     var url by mutableStateOf(initialUrl)
+    // Last attempted/confirmed endpoint is separate from an unsubmitted Settings draft.
+    var connectionEndpoint by mutableStateOf(initialUrl); private set
+    fun hostLabel(): String = try {
+        val endpoint = java.net.URI(connectionEndpoint.trim())
+        endpoint.host?.let { host ->
+            val address = if (host.contains(':') && !host.startsWith('[')) "[$host]" else host
+            address + if (endpoint.port >= 0) ":${endpoint.port}" else ""
+        } ?: "Host not configured"
+    } catch (_: Exception) { "Host not configured" }
     var typedToken by mutableStateOf("")
     var hasStoredToken by mutableStateOf(transport.hasToken()); private set
     var catalog by mutableStateOf(transport.catalog()); private set
@@ -55,10 +64,10 @@ class CatalogSession(private val transport: Transport, initialUrl: String, confi
         val typed = typedToken.trim()
         if (typed.isEmpty() && !transport.hasToken()) { show("Enter your access token", true); return }
         generation++; healthBusy = false; refreshBusy = false
-        try { connectRequested = true; transport.connect(value, typed); typedToken = ""; hasStoredToken = transport.hasToken(); show("", false) }
+        try { connectRequested = true; connectionEndpoint = value; transport.connect(value, typed); typedToken = ""; hasStoredToken = transport.hasToken(); show("", false) }
         catch (error: Exception) { connectRequested = false; show(error.message ?: "Could not save connection", true) }
     }
-    fun disconnect() { generation++; connectRequested = false; transport.disconnect(); show("Disconnected", false) }
+    fun disconnect() { generation++; connectRequested = false; transport.disconnect(); show("", false) }
     fun health() {
         val value = url.trim(); val result = EndpointPolicy.validate(value, BuildConfig.DEBUG)
         if (result != EndpointPolicy.Result.OK) { show(PiClient.describeResult(result), true); return }
@@ -122,6 +131,10 @@ class CatalogSession(private val transport: Transport, initialUrl: String, confi
     private fun clearLaunch() { launchId = null; launchRequest = null; launchTitle = ""; launching = false; transport.cancelTimeout() }
     override fun onConnectionState(state: ConnectionState, detail: String) {
         connection = state; connectionDetail = detail
+        if (state in setOf(ConnectionState.CONNECTING, ConnectionState.CONNECTED)) {
+            val endpoint = try { java.net.URI(detail) } catch (_: Exception) { null }
+            if (endpoint?.scheme in setOf("https", "http") && endpoint?.host != null) connectionEndpoint = detail
+        }
         if (active) effect(Effect.Usage(state == ConnectionState.CONNECTED))
         if (state == ConnectionState.CONNECTED && connectRequested && typedToken.isEmpty()) { screen = Screen.Catalog; connectRequested = false }
     }

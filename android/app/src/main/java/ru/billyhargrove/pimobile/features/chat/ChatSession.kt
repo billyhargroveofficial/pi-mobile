@@ -44,6 +44,7 @@ class ChatSession(
     var configuration by mutableStateOf<JSONObject?>(null); private set
     var metadata by mutableStateOf(JSONObject()); private set
     var items by mutableStateOf<List<TranscriptPresentation.Item>>(emptyList()); private set
+    var queue by mutableStateOf<List<ChatMessage>>(emptyList()); private set
     var notice by mutableStateOf(""); private set
     var composer by mutableStateOf(TextFieldValue())
     var attachments by mutableStateOf<List<Attachment>>(emptyList()); private set
@@ -91,6 +92,7 @@ class ChatSession(
     fun readerSettled(atBottom: Boolean) { followTail = atBottom }
     fun toggle(group: String) { presentation.toggle(group); items = presentation.items() }
     fun thumbnail(request: String, index: Int) = outbox.thumbnail(request, index)
+    fun queueRestored(request: String) = outbox.queueRestored(request)
     fun transcriptionChanged(value: Boolean) { transcribing = value }
     fun showNotice(text: String) { notice = text }
     fun dismissNotice() { notice = "" }
@@ -118,7 +120,7 @@ class ChatSession(
         val text = composer.text
         if (handleControl(text.trim())) return false
         if (text.startsWith("$") && !capability("skills")) { notice("Update the Pi bridge when idle to use skills"); return false }
-        return when (outbox.send(text, attachments, behavior).status) {
+        return when (outbox.send(text, attachments, behavior, status == SessionStatus.RUNNING).status) {
             ChatOutbox.SendStatus.WRITTEN -> { composer = TextFieldValue(); attachments = emptyList(); render(); tail(); true }
             ChatOutbox.SendStatus.EMPTY -> { notice("Write a message or attach a file"); false }
             else -> { notice("Not connected to this Pi session"); false }
@@ -307,7 +309,7 @@ class ChatSession(
     }
     private fun render(change: TranscriptStore.ChangeSet? = null) {
         presentation.submit(outbox.reconcile(store.transcript()))
-        persist(outbox.localReceipts()); items = presentation.items()
+        persist(outbox.localReceipts()); queue = outbox.queuedMessages(); items = presentation.items()
         val first = !firstRendered && items.isNotEmpty()
         if (first || (followTail && change?.tailTouched() == true)) tailRevision++
         if (first) firstRendered = true

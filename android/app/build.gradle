@@ -12,8 +12,8 @@ android {
         applicationId 'ru.billyhargrove.pimobile'
         minSdk 26
         targetSdk 35
-        versionCode 12
-        versionName '0.6.005'
+        versionCode 13
+        versionName '0.6.006'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         // No secrets, no tokens, no URLs are baked into BuildConfig.
     }

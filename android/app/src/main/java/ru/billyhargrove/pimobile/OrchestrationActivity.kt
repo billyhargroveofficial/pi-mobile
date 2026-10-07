@@ -12,6 +12,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import kotlinx.coroutines.delay
 import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -66,6 +68,8 @@ class OrchestrationActivity : AppCompatActivity() {
     private var olderVisible by mutableStateOf(false)
     private var childrenCount by mutableIntStateOf(0)
     private var rows by mutableStateOf<List<OrchestrationRow>>(emptyList())
+    private var activityData by mutableStateOf(JSONObject())
+    private var selectedWorkflow by mutableStateOf<JSONObject?>(null)
     private val presentation = TranscriptPresentation()
     private val transcriptList = LazyListState()
     private var transcriptItems by mutableStateOf<List<TranscriptPresentation.Item>>(emptyList())
@@ -151,12 +155,26 @@ class OrchestrationActivity : AppCompatActivity() {
             }
             copy.put("workflows", JSONArray()).put("agents", children)
         } catch (_: JSONException) { data }
+        activityData = shown
+        selectedWorkflow = OrchestrationData.objects(shown.optJSONArray("workflows")).find { it.optString("id") == workflow }
         rows = buildList {
-            if (workflow.isEmpty()) for (w in OrchestrationData.objects(shown.optJSONArray("workflows")))
-                add(OrchestrationRow("workflow", w))
-            for (a in OrchestrationData.agents(shown, null))
-                if (if (workflow.isEmpty()) a.optString("workflowId").isEmpty() else workflow == a.optString("workflowId"))
-                    add(OrchestrationRow("agent", a))
+            if (workflow.isEmpty()) {
+                for (w in OrchestrationData.objects(shown.optJSONArray("workflows"))) add(OrchestrationRow("workflow", w))
+                for (a in OrchestrationData.agents(shown, null)) if (a.optString("workflowId").isEmpty()) add(OrchestrationRow("agent", a))
+            } else {
+                val agents = OrchestrationData.agents(shown, workflow)
+                val phases = OrchestrationData.objects(selectedWorkflow?.optJSONArray("phases"))
+                val assigned = hashSetOf<String>()
+                phases.forEachIndexed { index, phase ->
+                    add(OrchestrationRow("phase", JSONObject(phase.toString()).put("id", "phase:$index")))
+                    agents.filter { it.optString("phase") == phase.optString("title") }.forEach {
+                        assigned.add(it.optString("id")); add(OrchestrationRow("agent", it))
+                    }
+                }
+                val remaining = agents.filter { it.optString("id") !in assigned }
+                if (remaining.isNotEmpty() && phases.isNotEmpty()) add(OrchestrationRow("phase", JSONObject().put("id", "unassigned").put("title", "Other agents")))
+                remaining.forEach { add(OrchestrationRow("agent", it)) }
+            }
         }
         subtitle = if (workflow.isEmpty()) OrchestrationData.summary(shown)
             else "Workflow · ${OrchestrationData.agents(shown, workflow).size} agents"
@@ -212,6 +230,9 @@ class OrchestrationActivity : AppCompatActivity() {
 
     @Composable private fun Screen() {
         val bg = color(R.color.bg)
+        var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+        val ticking = rows.any { OrchestrationData.active(it.data.optString("status")) }
+        LaunchedEffect(ticking) { if (ticking) while (true) { now = System.currentTimeMillis(); delay(1000) } }
         Column(Modifier.fillMaxSize().background(bg).semantics { testTagsAsResourceId = true }) {
             // Compose owns screen/list geometry; Markwon is a bounded text rendering leaf.
             Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
@@ -219,7 +240,7 @@ class OrchestrationActivity : AppCompatActivity() {
                 HeaderAction(R.drawable.ic_back, "Back") { finish() }
                 Column(Modifier.weight(1f).padding(start = 12.dp, end = 8.dp)) {
                     Text(intent.getStringExtra("title").orEmpty(), color = color(R.color.text_primary),
-                        fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(subtitle, color = color(R.color.text_secondary), fontSize = 12.sp,
                         maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
@@ -234,9 +255,12 @@ class OrchestrationActivity : AppCompatActivity() {
                 startActivity(intent(this@OrchestrationActivity, session, "", "", "Child agents").putExtra("parentAgent", agent))
             }
             if (agent.isNotEmpty() && olderVisible) OutlineAction("Load earlier activity", "agentLoadOlder", !busy) { refresh(true) }
-            if (agent.isEmpty()) LazyColumn(Modifier.fillMaxWidth().weight(1f).testTag("orchestrationList"),
+            if (agent.isEmpty()) LazyColumn(Modifier.fillMaxWidth().weight(1f).testTag("$packageName:id/orchestrationList"),
                 contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)) {
-                items(rows, key = { it.kind + ":" + it.data.optString("id") }) { row -> OrchestrationCard(row) }
+                selectedWorkflow?.let { flow -> item(key = "workflow-summary") { WorkflowCard(flow, now, false) } }
+                items(rows, key = { it.kind + ":" + it.data.optString("id") }) { row ->
+                    when (row.kind) { "phase" -> PhaseHeader(row.data); "workflow" -> WorkflowCard(row.data, now, true); else -> AgentRow(row.data, now) }
+                }
             } else PiTranscript(
                 items = transcriptItems,
                 state = transcriptList,
@@ -257,62 +281,81 @@ class OrchestrationActivity : AppCompatActivity() {
     }
 
     @Composable private fun OutlineAction(label: String, tag: String, enabled: Boolean = true, action: () -> Unit) {
-        OutlinedButton(onClick = action, enabled = enabled,
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = color(R.color.text_primary)),
-            border = BorderStroke(1.dp, color(R.color.outline_soft)),
+        TextButton(onClick = action, enabled = enabled,
+            colors = ButtonDefaults.textButtonColors(contentColor = color(R.color.text_primary)),
             modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 4.dp)
                 .testTag("$packageName:id/$tag")) {
             Text(label)
         }
     }
 
-    @Composable private fun OrchestrationCard(row: OrchestrationRow) {
-        val x = row.data
-        val flow = row.kind == "workflow"
-        val status = x.optString("status")
-        val title = x.optString("title", x.optString("name", "Agent"))
-        val description = if (x.optString("error").isEmpty()) x.optString("description") else x.optString("error")
-        val meta = if (flow) "${x.optInt("completed")} of ${x.optInt("agentCount")} agents done" else buildString {
-            if (x.optString("parentId").isNotEmpty()) append("↳ Child agent · ")
-            if (x.optString("phase").isNotEmpty()) append(x.optString("phase"))
-            val details = OrchestrationData.details(x)
-            if (details.isNotEmpty()) { if (x.optString("phase").isNotEmpty()) append(" · "); append(details) }
-        }
-        val ink = color(R.color.text_primary)
-        val secondary = color(R.color.text_secondary)
-        val statusColor = color(when (status) {
-            "failed" -> R.color.danger; "running" -> R.color.dot_ok; "queued" -> R.color.dot_warn
-            else -> R.color.text_secondary
-        })
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
-            .background(color(R.color.surface), RoundedCornerShape(24.dp))
-            .clickable {
-                startActivity(intent(this@OrchestrationActivity, session, row.kind, x.optString("id"), title)
-                    .putExtra("agentSummary", x.toString()))
-            }.semantics { contentDescription = "${if (flow) "Workflow" else "Agent"}: $title, ${OrchestrationData.label(status)}" }
-            .padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 14.dp)) {
-            Text("${if (flow) "WORKFLOW" else "AGENT"}   ·   ${OrchestrationData.label(status)}", color = statusColor, fontSize = 11.sp)
-            Text(title, Modifier.padding(top = 8.dp), color = ink, fontSize = 18.sp, fontWeight = FontWeight.Bold,
-                maxLines = 3, overflow = TextOverflow.Ellipsis)
-            if (description.isNotEmpty() && description != title)
-                Text(description, Modifier.padding(top = 6.dp), color = if (x.optString("error").isNotEmpty()) color(R.color.danger) else secondary,
-                    fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (flow) {
-                val phases = OrchestrationData.objects(x.optJSONArray("phases"))
-                if (phases.isNotEmpty()) Column(Modifier.padding(top = 12.dp)) {
-                    for (phase in phases) {
-                        val ps = phase.optString("status")
-                        val count = phase.optInt("agentCount")
-                        val text = "${when (ps) { "completed" -> "✓  "; "running" -> "●  "; else -> "○  " }}${phase.optString("title")}" +
-                            if (count > 0) "   ·   ${phase.optInt("completed")}/$count agents done" else ""
-                        Text(text, Modifier.padding(vertical = 4.dp), color = if (ps == "running") ink else secondary, fontSize = 12.sp)
+    @Composable private fun WorkflowCard(flow: JSONObject, now: Long, interactive: Boolean) {
+        val title = flow.optString("title", "Workflow")
+        val status = flow.optString("status")
+        val agents = OrchestrationData.agents(activityData, flow.optString("id"))
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)
+            .background(color(R.color.surface), RoundedCornerShape(20.dp))
+            .then(if (interactive) Modifier.clickable { startActivity(intent(this, session, "workflow", flow.optString("id"), title)) } else Modifier)
+            .semantics { contentDescription = "Workflow: $title, ${OrchestrationData.label(status)}" }.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StatusMark(status)
+                Text("Workflow · ${OrchestrationData.label(status)}", Modifier.padding(start = 8.dp), color = color(R.color.text_secondary), fontSize = 11.sp)
+            }
+            Text(title, Modifier.padding(top = 8.dp), fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Text("${flow.optInt("completed")} of ${flow.optInt("agentCount")} agents done", Modifier.padding(top = 6.dp), fontSize = 12.sp, color = color(R.color.text_secondary))
+            val metrics = buildList {
+                if (agents.any { it.has("toolCalls") }) add("${agents.sumOf { it.optLong("toolCalls").coerceAtLeast(0) }} tools")
+                if (agents.any { it.has("outputTokens") }) add("${agents.sumOf { it.optLong("outputTokens").coerceAtLeast(0) }} tokens")
+                OrchestrationData.duration(flow, now).takeIf(String::isNotEmpty)?.let(::add)
+            }.joinToString(" · ")
+            if (metrics.isNotEmpty()) Text(metrics, Modifier.padding(top = 4.dp), fontSize = 11.sp, color = color(R.color.text_secondary))
+            if (interactive) Column(Modifier.padding(top = 12.dp)) {
+                OrchestrationData.objects(flow.optJSONArray("phases")).forEach { phase ->
+                    Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        StatusMark(phase.optString("status"))
+                        Text(phase.optString("title"), Modifier.weight(1f).padding(start = 10.dp), fontSize = 12.sp,
+                            fontWeight = if (phase.optString("status") == "running") FontWeight.Medium else FontWeight.Normal)
+                        if (phase.optInt("agentCount") > 0) Text("${phase.optInt("completed")}/${phase.optInt("agentCount")}", fontSize = 11.sp, color = color(R.color.text_secondary))
                     }
                 }
+                Text("View stages & agents  ›", Modifier.padding(top = 10.dp), fontSize = 12.sp)
             }
-            if (meta.isNotEmpty()) Text(meta, Modifier.padding(top = 10.dp), color = secondary, fontSize = 11.sp)
-            Text(if (flow) "View stages & agents  ›" else if (x.optBoolean("canInspect")) "Open conversation  ›" else "View details  ›",
-                Modifier.padding(top = 14.dp), color = ink, fontSize = 12.sp)
+            if (flow.optString("error").isNotEmpty()) Text(flow.optString("error"), Modifier.padding(top = 8.dp), fontSize = 12.sp, color = color(R.color.danger))
         }
+    }
+
+    @Composable private fun PhaseHeader(phase: JSONObject) {
+        Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 20.dp, top = 18.dp, bottom = 6.dp)
+            .testTag("$packageName:id/workflowPhase"), verticalAlignment = Alignment.CenterVertically) {
+            StatusMark(phase.optString("status"))
+            Text(phase.optString("title"), Modifier.weight(1f).padding(start = 10.dp), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            if (phase.optInt("agentCount") > 0) Text("${phase.optInt("completed")}/${phase.optInt("agentCount")}", fontSize = 11.sp, color = color(R.color.text_secondary))
+        }
+    }
+
+    @Composable private fun AgentRow(agent: JSONObject, now: Long) {
+        val title = agent.optString("name", "Agent")
+        val status = agent.optString("status")
+        Column(Modifier.fillMaxWidth().padding(horizontal = if (workflow.isEmpty()) 20.dp else 34.dp)
+            .clickable { startActivity(intent(this, session, "agent", agent.optString("id"), title).putExtra("agentSummary", agent.toString())) }
+            .semantics { contentDescription = "Agent: $title, ${OrchestrationData.label(status)}" }
+            .padding(vertical = 12.dp).testTag("$packageName:id/orchestrationAgent")) {
+            Row(verticalAlignment = Alignment.Top) {
+                Text(title, Modifier.weight(1f), fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(OrchestrationData.label(status), Modifier.padding(start = 12.dp, top = 2.dp), fontSize = 10.sp, color = color(R.color.text_secondary))
+            }
+            val model = listOf(if (agent.optString("parentId").isNotEmpty()) "↳ Child agent" else "", OrchestrationData.shortModel(agent.optString("model")), agent.optString("thinkingLevel")).filter(String::isNotEmpty).joinToString(" · ")
+            if (model.isNotEmpty()) Text(model, Modifier.padding(top = 4.dp), fontSize = 11.sp, color = color(R.color.text_secondary))
+            val metrics = OrchestrationData.metrics(agent, now)
+            if (metrics.isNotEmpty()) Text(metrics, Modifier.padding(top = 4.dp), fontSize = 11.sp, color = color(R.color.text_secondary))
+            if (agent.optString("error").isNotEmpty()) Text(agent.optString("error"), Modifier.padding(top = 4.dp), fontSize = 12.sp, color = color(R.color.danger))
+        }
+    }
+
+    @Composable private fun StatusMark(status: String) {
+        if (status == "completed") Text("✓", fontSize = 12.sp, color = color(R.color.text_secondary), modifier = Modifier.width(12.dp))
+        else Box(Modifier.size(8.dp).background(color(if (status == "running") R.color.dot_ok else if (status == "failed") R.color.danger else R.color.outline), CircleShape))
     }
 
     @Composable private fun color(id: Int): Color = Color(LocalContext.current.getColor(id))

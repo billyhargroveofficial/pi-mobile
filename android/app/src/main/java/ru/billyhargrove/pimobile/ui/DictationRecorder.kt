@@ -50,7 +50,7 @@ class DictationRecorder(context: Context, private val ready: Consumer<File>, pri
                     Waveform(levels, Modifier.fillMaxWidth().height(88.dp).testTag("${context.packageName}:id/voiceWaveform").semantics { testTagsAsResourceId = true })
                     Text("Up to 10 minutes · stays in your draft", fontSize = 13.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedButton(onClick = this@DictationRecorder::cancel, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) { Text("Cancel") }
+                        TextButton(onClick = this@DictationRecorder::cancel, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) { Text("Cancel") }
                         Button(onClick = { stop() }, enabled = !finishing, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) { Text(if (finishing) "Finishing…" else "Finish") }
                     }
                 }

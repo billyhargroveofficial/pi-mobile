@@ -38,7 +38,7 @@ public class RelayConnectionSmokeTest {
             scenario.onActivity(activity -> app.client().connect(url, token));
             UiDevice device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
             assertTrue("Android WSS connection did not reach Connected",
-                device.wait(Until.hasObject(By.res(context.getPackageName(), "connectionStatusText").text("Connected")), 15000));
+                device.wait(Until.hasObject(By.res(context.getPackageName(), "connectionIndicator").desc("Connected")), 15000));
             assertTrue("Authenticated Android REST catalog is unavailable",
                 app.api().fetchCatalog(url, app.settings().token()).workspaces().size() > 0);
         }

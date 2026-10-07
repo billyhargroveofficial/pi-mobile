@@ -145,7 +145,7 @@ class EffortSlider(context: Context) : FrameLayout(context) {
             val rtl = layoutDirection == androidx.compose.ui.unit.LayoutDirection.Rtl
             val fraction = position.value.coerceIn(0f, 1f)
             val x = inset + (size.width - 2 * inset) * if (rtl) 1f - fraction else fraction
-            val half = 11.dp.toPx()
+            val half = 16.5.dp.toPx()
             val left = if (rtl) x else 0f
             val right = if (rtl) size.width else x
             val pink = Color(0xfff38ac5)

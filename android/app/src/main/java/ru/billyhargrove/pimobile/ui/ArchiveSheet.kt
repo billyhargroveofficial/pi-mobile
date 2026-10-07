@@ -12,6 +12,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import ru.billyhargrove.pimobile.R
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -58,12 +62,12 @@ class ArchiveSheet @JvmOverloads constructor(context: Context, private val loade
             }
             Column(Modifier.fillMaxWidth().height((context.resources.displayMetrics.heightPixels / context.resources.displayMetrics.density * .88f).dp)
                 .navigationBarsPadding().imePadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.fillMaxWidth()) { Text("History", Modifier.weight(1f).padding(vertical = 12.dp), fontSize = 24.sp); TextButton(onClick = ::dismiss) { Text("Close") } }
-                OutlinedTextField(input, { text ->
+                Row(Modifier.fillMaxWidth()) { Text("History", Modifier.weight(1f).padding(vertical = 12.dp), fontSize = 24.sp, fontWeight = FontWeight.SemiBold); TextButton(onClick = ::dismiss) { Text("Close") } }
+                TextField(input, { text ->
                     input = text; pendingSearch?.let(handler::removeCallbacks)
                     pendingSearch = Runnable { search(text.trim()) }.also { handler.postDelayed(it, 250) }
-                }, placeholder = { Text("Search conversations") }, singleLine = true, modifier = tag("archiveSearch").fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                }, colors = PiFieldColors(), placeholder = { Text("Search conversations") }, singleLine = true, modifier = tag("archiveSearch").fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { pendingSearch?.let(handler::removeCallbacks); search(input.trim()); keyboard?.hide() }))
                 LazyColumn(state = list, modifier = tag("archiveList").fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     var prior: String? = null
@@ -82,7 +86,7 @@ class ArchiveSheet @JvmOverloads constructor(context: Context, private val loade
                     }
                     if (hasMore && !loading) item(key = "more") { TextButton(onClick = ::load, modifier = Modifier.fillMaxWidth()) { Text("Load more") } }
                 }
-                if (error.isNotEmpty()) { Text(error, color = MaterialTheme.colorScheme.error); OutlinedButton(onClick = ::load, modifier = Modifier.fillMaxWidth()) { Text("Retry") } }
+                if (error.isNotEmpty()) { Text(error, color = MaterialTheme.colorScheme.error); TextButton(onClick = ::load, modifier = Modifier.fillMaxWidth()) { Text("Retry") } }
                 else if (!loading && rows.isEmpty()) Text(if (query.isEmpty()) "No closed conversations yet" else "No results", Modifier.padding(16.dp))
             }
             confirm?.let { row -> AlertDialog(onDismissRequest = { confirm = null }, title = { Text("Delete session from disk?") },
@@ -101,8 +105,8 @@ class ArchiveSheet @JvmOverloads constructor(context: Context, private val loade
         Row((if (skeleton) tag("archiveSkeleton") else tag("archiveRow").clickable(onClick = open))
             .fillMaxWidth().heightIn(min = 76.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp)).padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.size(38.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))) {
-                if (!skeleton) Text("≡", Modifier.padding(10.dp), fontSize = 18.sp)
+            Box(Modifier.size(38.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                if (!skeleton) Icon(painterResource(R.drawable.ic_chat), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 SkeletonText(if (skeleton) null else row?.optString("title").orEmpty(), 15.sp, .78f)

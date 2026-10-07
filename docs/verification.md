@@ -1,5 +1,9 @@
 # Проверки релизов Pi Mobile
 
+## 0.6.006 — compact UI, Queue и workflows, 7 октября 2026
+
+Актуальные проверки: [release-0.6.006.md](release-0.6.006.md):82 Node,185 JVM,81 synthetic UI PASS/1 live opt-in skipped (`OK (82 tests)`); по6 focused display/font/theme проверок именно0.6.006 и предыдущие широкие UI матрицы, визуальный просмотр. Upgrade опубликованной0.6.005→0.6.006 сохранил SHA256 всех9 существующих приватных файлов. Прежний сертификат, versionCode13. Billy прямо разрешил GitHub-релиз и затем отправку в «Парилка228». Live Pi/Orca/gateway не трогать.
+
 ## 0.6.005 — UI хотфикс, 7 октября 2026
 
 Актуальные проверки: [release-0.6.005.md](release-0.6.005.md):82 Node,173 JVM,64 synthetic UI PASS/1 live opt-in skipped (`OK (65 tests)`), обе15-case display/font/theme матрицы, визуальный просмотр и upgrade/rollback с сохранением приватных данных. GitHub-релиз разрешён; Telegram не требуется.
