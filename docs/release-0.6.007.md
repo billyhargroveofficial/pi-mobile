@@ -87,3 +87,12 @@ Pi/Orca/gateway не обновлялись и не перезапускалис
 Временные Gradle JVM flags: Xmx1g/MaxMetaspaceSize768m; настройки проекта не менялись.
 Логи, APK, upgrade hashes и screenshots:
 `/Users/billy/temp/pi-mobile-release-0.6.007/`; private hash evidence не публикуется.
+
+## Публикация
+
+Стабильный latest [GitHub-релиз v0.6.007](https://github.com/billyhargroveofficial/pi-mobile/releases/tag/v0.6.007)
+опубликован из commit `7ef2692c3e97b35e72d5485e961bc4b0a78d585c`; main и annotated tag
+прочитаны обратно из origin. GitHub API digest/size, `SHA256SUMS.txt` и повторно
+скачанный по публичному URL APK совпали с проверенным артефактом побайтно.
+Draft/prerelease — false, latest endpoint возвращает этот выпуск. Эмулятор
+восстановлен в1080×2400/light/font1 и выключен; ADB devices пуст.
