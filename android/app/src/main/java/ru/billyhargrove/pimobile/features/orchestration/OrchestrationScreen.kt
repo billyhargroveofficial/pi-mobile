@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import org.json.JSONObject
 import ru.billyhargrove.pimobile.R
 import ru.billyhargrove.pimobile.core.OrchestrationData
+import ru.billyhargrove.pimobile.core.AgentMetrics
 import ru.billyhargrove.pimobile.net.MediaLoader
 import ru.billyhargrove.pimobile.ui.PiTranscript
 
@@ -111,7 +112,7 @@ internal fun OrchestrationScreen(
     }
 }
 
-@Composable private fun WorkflowCard(flow: JSONObject, now: Long, interactive: Boolean, summary: OrchestrationProjection.WorkflowMetrics?, onOpen: (JSONObject) -> Unit) {
+@Composable private fun WorkflowCard(flow: JSONObject, now: Long, interactive: Boolean, summary: AgentMetrics?, onOpen: (JSONObject) -> Unit) {
     val title = flow.optString("title", "Workflow")
     val status = flow.optString("status")
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)

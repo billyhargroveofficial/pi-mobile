@@ -5,9 +5,12 @@ import android.graphics.BitmapFactory
 import android.util.LruCache
 import ru.billyhargrove.pimobile.core.MediaUrlPolicy
 import ru.billyhargrove.pimobile.store.SettingsStore
+import ru.billyhargrove.pimobile.store.ConversationCache
 
 /** Authenticated same-origin images. Bounded decode and memory cache; no image files. */
-class MediaLoader(private val api: HttpApi, private val settings: SettingsStore) {
+class MediaLoader internal constructor(private val api: HttpApi, private val connection: () -> Connection) {
+    internal data class Connection(val base: String, val token: String)
+    constructor(api: HttpApi, settings: SettingsStore) : this(api, { Connection(settings.baseUrl(), settings.token()) })
     interface Callback {
         fun onLoaded(resolvedUrl: String, bitmap: Bitmap)
         fun onFailed(resolvedUrl: String, message: String)
@@ -18,16 +21,19 @@ class MediaLoader(private val api: HttpApi, private val settings: SettingsStore)
     private val lock = Any()
     private val inFlight = mutableMapOf<String, MutableList<Callback>>()
     fun load(rawUrl: String, callback: Callback) {
-        val base = settings.baseUrl(); val token = settings.token()
+        val (base, token) = connection()
         val resolved = MediaUrlPolicy.resolve(base, rawUrl)
         if (resolved == null) {
             AppExecutors.main { callback.onFailed("", "External source blocked: image is not from this server") }
             return
         }
+        // URL alone must not share bytes or an in-flight authorization failure
+        // across credential changes. Keep secrets out of cache identifiers.
+        val key = ConversationCache.key(base, token, resolved)
         synchronized(lock) {
-            cache.get(resolved)?.let { bitmap -> AppExecutors.main { callback.onLoaded(resolved, bitmap) }; return }
-            inFlight[resolved]?.let { it.add(callback); return }
-            inFlight[resolved] = mutableListOf(callback)
+            cache.get(key)?.let { bitmap -> AppExecutors.main { callback.onLoaded(resolved, bitmap) }; return }
+            inFlight[key]?.let { it.add(callback); return }
+            inFlight[key] = mutableListOf(callback)
         }
         AppExecutors.io().execute {
             var result: Bitmap? = null; var failure = "Loading failed"
@@ -37,8 +43,8 @@ class MediaLoader(private val api: HttpApi, private val settings: SettingsStore)
             } catch (error: Exception) { failure = error.message ?: "Could not load image" }
             val bitmap = result; val error = failure
             val callbacks = synchronized(lock) {
-                if (bitmap != null) cache.put(resolved, bitmap)
-                inFlight.remove(resolved)?.toList().orEmpty()
+                if (bitmap != null) cache.put(key, bitmap)
+                inFlight.remove(key)?.toList().orEmpty()
             }
             AppExecutors.main { callbacks.forEach { if (bitmap != null) it.onLoaded(resolved, bitmap) else it.onFailed(resolved, error) } }
         }

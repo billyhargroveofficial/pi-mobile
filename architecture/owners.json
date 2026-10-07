@@ -11,7 +11,13 @@
       "ui/UsageCards",
       "ui/ArchiveSheet",
       "features/catalog/CatalogSession",
-      "features/catalog/CatalogScreen"
+      "features/catalog/CatalogScreen",
+      "features/catalog/UsageProjection",
+      "features/catalog/UsageSession",
+      "features/catalog/UsageScreen",
+      "features/catalog/ArchiveProjection",
+      "features/catalog/ArchiveSession",
+      "features/catalog/ArchiveScreen"
     ],
     "chat": [
       "ChatActivity",
@@ -25,7 +31,15 @@
       "ui/MarkdownRenderer",
       "ui/ModelSettingsSheet",
       "ui/TierToggle",
-      "ui/PiTranscript"
+      "ui/PiTranscript",
+      "features/chat/ChatHeader",
+      "features/chat/ChatComposer",
+      "features/chat/ChatWorkDock",
+      "features/chat/ModelCapabilities",
+      "features/chat/ModelSettingsSession",
+      "features/chat/QuickEffortSession",
+      "features/chat/ModelSettingsScreen",
+      "features/chat/QuickEffortScreen"
     ],
     "orchestration": [
       "OrchestrationActivity",
@@ -49,25 +63,62 @@
       "ui/PiTheme",
       "ui/ComposeSheet",
       "ui/PiIcons",
-      "ui/StatusUi"
+      "ui/StatusUi",
+      "ui/PiIconButton"
     ]
   },
-  "compositionRoots": ["PiApp", "MainActivity", "ChatActivity", "OrchestrationActivity"],
+  "compositionRoots": [
+    "PiApp",
+    "MainActivity",
+    "ChatActivity",
+    "OrchestrationActivity"
+  ],
   "publicFeatureApis": {
-    "catalog": ["MainActivity"],
-    "chat": ["ChatActivity", "ui/PiTranscript"],
-    "orchestration": ["OrchestrationActivity", "ui/OrchestrationEntry"],
-    "voice": ["ui/DictationRecorder"],
-    "updater": ["ui/AppUpdates"]
+    "catalog": [
+      "MainActivity"
+    ],
+    "chat": [
+      "ChatActivity",
+      "ui/PiTranscript"
+    ],
+    "orchestration": [
+      "OrchestrationActivity",
+      "ui/OrchestrationEntry"
+    ],
+    "voice": [
+      "ui/DictationRecorder"
+    ],
+    "updater": [
+      "ui/AppUpdates"
+    ]
   },
   "sourceContracts": {
     "features/orchestration/OrchestrationSession": "platform-free-state",
     "features/orchestration/OrchestrationProjection": "pure-projection",
-    "features/orchestration/OrchestrationScreen": "presentation-only"
+    "features/orchestration/OrchestrationScreen": "presentation-only",
+    "features/chat/ChatHeader": "presentation-only",
+    "features/chat/ChatWorkDock": "presentation-only",
+    "features/chat/ChatScreen": "presentation-only",
+    "features/chat/ChatComposer": "presentation-only",
+    "features/catalog/UsageProjection": "pure-projection",
+    "features/catalog/UsageSession": "platform-free-state",
+    "features/catalog/UsageScreen": "presentation-only",
+    "features/catalog/ArchiveProjection": "pure-projection",
+    "features/catalog/ArchiveSession": "platform-free-state",
+    "features/catalog/ArchiveScreen": "presentation-only",
+    "features/chat/ModelCapabilities": "pure-projection",
+    "features/chat/ModelSettingsSession": "platform-free-state",
+    "features/chat/QuickEffortSession": "platform-free-state",
+    "features/chat/ModelSettingsScreen": "presentation-only",
+    "features/chat/QuickEffortScreen": "presentation-only"
   },
   "platformInteropDependencies": {
-    "ui/ImageViewer": ["PiApp"],
-    "ui/ArchiveSheet": ["PiApp"]
+    "ui/ImageViewer": [
+      "PiApp"
+    ],
+    "ui/ArchiveSheet": [
+      "PiApp"
+    ]
   },
   "platformClasses": {
     "core": [
@@ -106,7 +157,8 @@
       "TranscriptStore",
       "Workspace",
       "WorkTimeline",
-      "TranscriptPresentation"
+      "TranscriptPresentation",
+      "AgentMetrics"
     ],
     "net": [
       "ApiException",
@@ -115,7 +167,8 @@
       "HttpApi",
       "HttpClients",
       "MediaLoader",
-      "PiClient"
+      "PiClient",
+      "PendingCommands"
     ],
     "store": [
       "ConversationCache",

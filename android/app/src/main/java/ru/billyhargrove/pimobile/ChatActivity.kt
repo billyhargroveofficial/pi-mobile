@@ -70,6 +70,7 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
             override fun abort(session: String) = client.sendAbort(session)
             override fun configure(session: String, provider: String?, model: String?, effort: String?, tier: String?) = client.configure(session, provider, model, effort, tier)
             override fun read(session: String, kind: String, args: JSONObject) = client.readCommand(session, kind, args)
+            override fun pendingRequests(session: String) = client.pendingRequestIds(session).toSet()
         }
         chatState.value = ChatSession(session, intent.getStringExtra("session_title").orEmpty(),
             intent.getBooleanExtra("read_only", false), transport, pending.load(), pending::save, ::effect)
@@ -148,10 +149,11 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
         when (value) {
             is ChatSession.Effect.Notice -> Unit // The owner exposes persistent, dismissible inline feedback.
             is ChatSession.Effect.ConfigurationResult -> {
-                effortPopup?.completed(value.error)
-                if (value.error == null) modelSheet?.applied()
-                else if (modelSheet?.isShowing == true) modelSheet?.failed(value.error)
-                else if (effortPopup?.isShowing != true) notice(value.error)
+                val quick = effortPopup?.takeIf { it.isShowing && it.awaitingResult }
+                val model = modelSheet?.takeIf { it.isShowing && it.awaitingResult }
+                quick?.completed(value.error)
+                model?.let { if (value.error == null) it.applied() else it.failed(value.error) }
+                if (value.error != null && quick == null && model == null) notice(value.error)
             }
             is ChatSession.Effect.Document -> {
                 documentPreview?.dismiss()

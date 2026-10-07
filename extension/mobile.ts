@@ -7,13 +7,14 @@ import {skillCommands,skillPrompt,mcpSnapshot} from './mobile-controls.ts';
 import {supportedTiers,observedTier,restoredTier,tierPayload,TIER_ENTRY,type MobileTier} from './mobile-tier.ts';
 import {MobileOrchestration} from './mobile-orchestration.ts';
 import type {ExtensionAPI,ExtensionContext} from '@earendil-works/pi-coding-agent';
+import {CommandReceipts} from '../contracts/command-receipts.mjs';
 
 // Session-scoped resources only. No second Pi process, no access to auth secrets.
 export default function mobile(pi:ExtensionAPI){
   let ctx:ExtensionContext|undefined,socket:net.Socket|undefined,retry:ReturnType<typeof setTimeout>|undefined,timer:ReturnType<typeof setTimeout>|undefined;
   let enabled=false,registered=false,buffer='',generation=0,running=false,dirty=false;
   let transcript:any[]=[],partial:any=null,truncated=false;
-  const tools=new Map<string,any>(),seen=new Map<string,any>();
+  const tools=new Map<string,any>(),seen=new CommandReceipts();
   let commands=Promise.resolve();
   let history={before:'',hasMore:false},turnId='legacy',epoch=0;
   let current:any=null,streamStarted=0;
@@ -56,7 +57,7 @@ export default function mobile(pi:ExtensionAPI){
     try{
       if(c.type!=='command'||c.sessionId!==ctx.sessionManager.getSessionId())throw Error('Session changed');
       if(typeof c.requestId!=='string')throw Error('Invalid request');
-      if(seen.has(c.requestId)){send(seen.get(c.requestId));return;}
+      const previous=seen.get(c.requestId);if(previous){send(previous);return;}
       let data:any;
       if(c.command==='agent_transcript'){
         if(typeof c.agentId!=='string'||!/^[a-zA-Z0-9._:-]{1,160}$/.test(c.agentId)||!Number.isSafeInteger(c.before)||c.before<0)throw Error('Invalid agent inspection');
@@ -92,8 +93,8 @@ export default function mobile(pi:ExtensionAPI){
         const content=images.length?[{type:'text' as const,text:prompt.text||'Посмотри изображение'},...images]:prompt.text;
         pi.sendUserMessage(content,{deliverAs:c.behavior==='steer'?'steer':'followUp',expandPromptTemplates:prompt.expand});
       }else throw Error('Unsupported command');
-      const ack={type:'ack',requestId:c.requestId,ok:true,...(data?{data}:{})};if(c.command!=='agent_transcript'){seen.set(c.requestId,ack);if(seen.size>1000)seen.delete(seen.keys().next().value!);}send(ack);
-    }catch(e){const ack={type:'ack',requestId:c?.requestId,ok:false,error:e instanceof Error?e.message:'Command failed'};if(c?.requestId&&c.command!=='agent_transcript')seen.set(c.requestId,ack);send(ack);}
+      const ack={type:'ack',requestId:c.requestId,ok:true,...(data?{data}:{})};seen.remember(c.command,c.requestId,ack);send(ack);
+    }catch(e){const ack={type:'ack',requestId:c?.requestId,ok:false,error:e instanceof Error?e.message:'Command failed'};seen.remember(c?.command,c?.requestId,ack);send(ack);}
   }
   function connect(){
     if(!enabled||!ctx||socket)return;const gen=generation;const s=net.connect(socketPath);socket=s;buffer='';s.setEncoding('utf8');

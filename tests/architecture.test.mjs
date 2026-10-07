@@ -74,6 +74,42 @@ test('inspection state and projection remain platform/transport free; screen onl
  assert.match(checkSourceContract(screen,'import ru.billyhargrove.pimobile.net.HttpApi as Api',ownership).join('\n'),/presentation-only must not reference/);
  assert.match(checkSourceContract(screen,'fun load() { okhttp3.OkHttpClient() }',ownership).join('\n'),/presentation-only must not reference/);
 });
+test('extracted chat presentation accepts only the bounded anchor/media leaves',()=>{
+ for(const name of ['ChatScreen','ChatHeader','ChatComposer','ChatWorkDock']){
+  const file=`${androidRoot}/features/chat/${name}.kt`;
+  assert.deepEqual(checkSourceContract(file,'import android.graphics.Rect\nimport ru.billyhargrove.pimobile.net.MediaLoader',ownership),[]);
+  for(const source of ['import android.app.Activity','import android.content.Context','import android.graphics.*','import ru.billyhargrove.pimobile.net.PiClient','import ru.billyhargrove.pimobile.store.SettingsStore'])
+   assert.match(checkSourceContract(file,source,ownership).join('\n'),/presentation-only must not reference/);
+ }
+});
+test('catalog data owners cannot reach HTTP, platform, or their screens',()=>{
+ const prefix=`${androidRoot}/features/catalog/`;
+ for(const name of ['Usage','Archive']){
+  const state=prefix+name+'Session.kt',projection=prefix+name+'Projection.kt',screen=prefix+name+'Screen.kt';
+  const symbols={['features/catalog/'+name+'Screen']:[name+'Screen']};
+  for(const source of ['import android.os.Handler','import ru.billyhargrove.pimobile.net.HttpApi','import ru.billyhargrove.pimobile.ui.ArchiveSheet'])
+   assert.match(checkSourceContract(state,source,ownership).join('\n'),/platform-free-state must not reference/);
+  assert.match(checkSourceContract(state,`fun render() { ${name}Screen() }`,ownership,symbols).join('\n'),/platform-free-state must not depend on presentation-only/);
+  assert.match(checkSourceContract(projection,'import androidx.compose.runtime.mutableStateOf',ownership).join('\n'),/pure-projection must not reference/);
+  assert.match(checkSourceContract(projection,`fun render() { ${name}Session() }`,ownership).join('\n'),/pure-projection must not depend on platform-free-state/);
+  assert.match(checkSourceContract(screen,'import ru.billyhargrove.pimobile.net.HttpApi',ownership).join('\n'),/presentation-only must not reference/);
+ }
+});
+test('configuration owners and shared capability projection preserve bounded source direction',()=>{
+ const prefix=`${androidRoot}/features/chat/`;
+ for(const name of ['ModelSettings','QuickEffort']){
+  const state=prefix+name+'Session.kt',screen=prefix+name+'Screen.kt';
+  const symbols={['features/chat/'+name+'Screen']:[name+'Screen']};
+  for(const source of ['import android.content.Context','import ru.billyhargrove.pimobile.ui.EffortSlider','import ru.billyhargrove.pimobile.net.PiClient'])
+   assert.match(checkSourceContract(state,source,ownership).join('\n'),/platform-free-state must not reference/);
+  assert.match(checkSourceContract(state,`fun render() { ${name}Screen() }`,ownership,symbols).join('\n'),/platform-free-state must not depend on presentation-only/);
+  assert.deepEqual(checkSourceContract(screen,'import ru.billyhargrove.pimobile.ui.EffortSlider',ownership),[]);
+  assert.match(checkSourceContract(screen,'import ru.billyhargrove.pimobile.net.PiClient',ownership).join('\n'),/presentation-only must not reference/);
+ }
+ const projection=prefix+'ModelCapabilities.kt';
+ assert.match(checkSourceContract(projection,'import androidx.compose.runtime.mutableStateOf',ownership).join('\n'),/pure-projection must not reference/);
+ assert.match(checkSourceContract(projection,'fun change() { QuickEffortSession() }',ownership).join('\n'),/pure-projection must not depend on platform-free-state/);
+});
 test('profiled feature source direction also rejects same-package/wildcard/aliased reverse dependencies',()=>{
  const prefix=`${androidRoot}/features/orchestration/`,symbols={'features/orchestration/OrchestrationScreen':['OrchestrationScreen']};
  for(const source of [

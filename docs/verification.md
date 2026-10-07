@@ -1,5 +1,41 @@
 # Проверки релизов Pi Mobile
 
+## 0.6.007 — стабильная прокрутка, плавные события и архитектура, 7 октября 2026
+
+[Релиз и доказательства](release-0.6.007.md):93 Node/284 JVM PASS,99 synthetic UI
+PASS и1 live opt-in skipped (`OK (100 tests)`) на финальном APK; по29 focused PASS
+в360dp dark1.3× и light2×. Hardware reveal дал16 разных кадров в каждом режиме,
+catch-up —36/36/37 позиций. Подпись совпала с опубликованной0.6.006; upgrade
+code13→14 без удаления сохранил SHA256 всех9 приватных файлов. Build PASS,
+lint0 errors/149 warnings. Физический телефон/live hosts не проверялись.
+
+## Панели модели и effort — 7 октября 2026, без нового релиза
+
+[Декомпозиция configuration panels](architecture-configuration-20261007.md):93 Node/
+284 JVM PASS, включая29 новых state/projection проверок; финальный APK прошёл
+native14/14 в normal,360dp1.3× dark и360dp2× light (42 PASS). Один capability
+projection обслуживает выбор модели, поиск, effort и tier без повторных JSON scans.
+Проверены confirmed rollback, порядок ACK/partial reports и ошибка после закрытия
+панели. Два static before/after сравнения совпадают с явными исключениями system
+bars, spinner и transient tier feedback. Debug/androidTest build PASS,
+lint0 errors/149 warnings; версия0.6.006/code13. Физический телефон и live hosts
+этим локальным прогоном не проверялись.
+
+## Каталог, Usage и история — 7 октября 2026, без нового релиза
+
+[Следующий слайс декомпозиции](architecture-catalog-20261007.md):92 Node/255 JVM PASS,
+в том числе30 новых state/projection проверок; native8/8 в normal,360dp1.3× dark
+и360dp2× light (24 PASS). Детали Usage открываются без повторного JSON scan;
+history сохраняет unique date-run keys при pagination, guards stale/duplicate
+callbacks и pending delete confirmation. Четыре matched static before/after PNG
+совпадают с явным исключением системных bars, spinner и fixture timestamps.
+Debug/androidTest build и lint0 errors/150 warnings; версия0.6.006/code13.
+Физический телефон/live hosts этим локальным слайсом не проверялись.
+
+## Ревью и стабильность чата — 7 октября 2026, без нового релиза
+
+[Ревью, декомпозиция и новые события](review-architecture-20261007.md):91 Node/225 JVM PASS; полный API35 UI93 synthetic PASS/1 live opt-in skipped (`OK (94 tests)`), финальный native runtime7/7 и arrival5/5 в normal/360dp1.3× dark/360dp2× light. Сохранены pixel anchors при новых ответах/tools/stream/history и actual stop/start; hardware16 кадров подтверждают reveal,36/36/37 позиций — smooth catch-up. Учтены motion off, границы cached history и исправленный font2 fixture. Шесть matched static before/after PNG имеют0 изменённых app pixels. Markdown1 parse вместо2; dock counters2→2 вместо6→10. Debug/androidTest build и lint0 errors/150 прежних warnings. Полный gate предшествовал последним bounded epoch/capsule fixes; final APK проверен225 JVM, focused UI и display matrix. Новая публикация и live Pi/Orca/gateway не выполнялись.
+
 ## Локальная архитектура — 7 октября 2026, без нового релиза
 
 [Декомпозиция read-only orchestration и следующие слайсы](architecture-work-20261007.md):85 Node/211 JVM PASS;82 synthetic UI PASS +1 live opt-in skipped (`OK (83 tests)`),9-case orchestration normal/narrow/font/theme прогоны, сборка/lint0 errors. Семь matched dark before/after PNG имеют0 изменённых app pixels, immutable baseline сохранён. Android counter подтвердил устранение повторного JSON aggregation на тике часов:4→6 до,2→2 после. Нового APK-релиза/deployment/Telegram delivery нет; версия остаётся0.6.006/versionCode13. Ограничения физического устройства/live-сети сохраняются.

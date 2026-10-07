@@ -28,16 +28,14 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 import org.json.JSONArray
 import ru.billyhargrove.pimobile.R
+import ru.billyhargrove.pimobile.features.chat.ModelCapabilities
 import kotlin.math.*
 
 /** Compose brain slider shared by both platform sheets during their bounded migration. */
 class EffortSlider(context: Context) : FrameLayout(context) {
     fun interface Change { fun changed(value: String, committed: Boolean) }
     companion object {
-        @JvmStatic fun label(value: String) = when (value) {
-            "off" -> "Off"; "minimal" -> "Minimal"; "low" -> "Low"; "medium" -> "Medium"
-            "high" -> "High"; "xhigh" -> "Extra High"; "max" -> "Max"; else -> value
-        }
+        @JvmStatic fun label(value: String) = ModelCapabilities.label(value)
     }
     private var levels by mutableStateOf<List<String>>(emptyList())
     private var selected by mutableIntStateOf(0)
@@ -52,8 +50,11 @@ class EffortSlider(context: Context) : FrameLayout(context) {
         }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
     fun configure(values: JSONArray?, preferred: String, change: Change?) {
+        configureLevels(ModelCapabilities.levels(values), preferred, change)
+    }
+    internal fun configureLevels(values: List<String>, preferred: String, change: Change?) {
         this.change = null
-        levels = (0 until (values?.length() ?: 0)).mapNotNull { values?.optString(it)?.takeIf(String::isNotEmpty) }.distinct()
+        levels = values.toList()
         selected = levels.indexOf(preferred).coerceAtLeast(0)
         editable = levels.size > 1; super.setEnabled(editable)
         version++; this.change = change

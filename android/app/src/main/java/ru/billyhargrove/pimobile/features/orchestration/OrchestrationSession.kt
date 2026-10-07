@@ -2,6 +2,7 @@ package ru.billyhargrove.pimobile.features.orchestration
 
 import androidx.compose.runtime.*
 import org.json.JSONObject
+import ru.billyhargrove.pimobile.core.AgentMetrics
 import ru.billyhargrove.pimobile.core.ChatMessage
 import ru.billyhargrove.pimobile.core.OrchestrationData
 import ru.billyhargrove.pimobile.core.SessionStatus
@@ -29,7 +30,7 @@ internal class OrchestrationSession(
     var olderVisible by mutableStateOf(false); private set
     var childrenCount by mutableIntStateOf(0); private set
     var rows by mutableStateOf<List<OrchestrationProjection.Row>>(emptyList()); private set
-    var workflowMetrics by mutableStateOf<Map<String, OrchestrationProjection.WorkflowMetrics>>(emptyMap()); private set
+    var workflowMetrics by mutableStateOf<Map<String, AgentMetrics>>(emptyMap()); private set
     var selectedWorkflow by mutableStateOf<JSONObject?>(null); private set
     var transcriptItems by mutableStateOf<List<TranscriptPresentation.Item>>(emptyList()); private set
     var followTailRevision by mutableIntStateOf(0); private set

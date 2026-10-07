@@ -18,7 +18,8 @@ object WorkTimeline {
                 if (message.role() in setOf(ChatMessage.Role.USER, ChatMessage.Role.ASSISTANT)) {
                     appendTools(out, tools, turn, collapsed); tools.clear()
                     val progress = message.role() == ChatMessage.Role.ASSISTANT
-                    val key = (if (progress) "progress:" else "") + message.stableKey()
+                    // A later answer changes presentation, never the reader's item identity.
+                    val key = message.stableKey()
                     out.add(Row(key, turn, key, message, false, false, progress, 0))
                 } else tools.add(message)
             }

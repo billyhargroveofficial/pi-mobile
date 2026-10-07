@@ -13,6 +13,8 @@ import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tasklist.TaskListPlugin
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
+import java.lang.ref.WeakReference
 import ru.billyhargrove.pimobile.core.MathMarkdown
 import ru.billyhargrove.pimobile.R
 
@@ -23,6 +25,10 @@ class MarkdownRenderer(context: Context, links: Links) {
     private val cache = LruCache<String, Spanned>(48)
     private val executor = Executors.newSingleThreadExecutor { task -> Thread(task, "pi-mobile-markdown").apply { isDaemon = true } }
     private val main = Handler(Looper.getMainLooper())
+    private data class Binding(val renderer: MarkdownRenderer, val source: String)
+    // Main-thread waiters coalesce identical text even before the first parse finishes.
+    private val waiting = mutableMapOf<String, MutableList<WeakReference<TextView>>>()
+    internal val parseCount = AtomicInteger()
     private val blocked = Regex("(?s).*\\\\(includegraphics|input|include|write|href|url)\\b.*")
     private val markwon = Markwon.builder(context).usePlugin(MarkwonInlineParserPlugin.create())
         .usePlugin(JLatexMathPlugin.create(16 * context.resources.displayMetrics.scaledDensity) { builder ->
@@ -42,19 +48,34 @@ class MarkdownRenderer(context: Context, links: Links) {
     fun render(view: TextView, source: String?) {
         if (closed) return
         view.movementMethod = LinkMovementMethod.getInstance()
-        val key = source.orEmpty(); if (key == view.getTag(R.id.markdownSource)) return
-        view.setTag(R.id.markdownSource, key)
+        val key = source.orEmpty()
+        val binding = Binding(this, key)
+        if (binding == view.getTag(R.id.markdownSource)) return
+        view.setTag(R.id.markdownSource, binding)
         cache.get(key)?.let { markwon.setParsedMarkdown(view, it); return }
         view.text = key
+        waiting[key]?.let { it.add(WeakReference(view)); return }
+        waiting[key] = mutableListOf(WeakReference(view))
         executor.execute {
             if (closed) return@execute
             val parsed = try {
+                parseCount.incrementAndGet()
                 val normalized = MathMarkdown.normalize(key)
                 if (blocked.matches(normalized)) SpannableString(key) else markwon.toMarkdown(normalized)
-            } catch (_: Throwable) { return@execute }
-            cache.put(key, parsed)
-            main.post { if (!closed && key == view.getTag(R.id.markdownSource)) markwon.setParsedMarkdown(view, parsed) }
+            } catch (_: Exception) { null }
+            main.post {
+                val views = waiting.remove(key).orEmpty()
+                if (!closed) {
+                    if (parsed != null) cache.put(key, parsed)
+                    views.forEach { reference -> reference.get()?.let { target ->
+                        if (binding == target.getTag(R.id.markdownSource)) {
+                            if (parsed != null) markwon.setParsedMarkdown(target, parsed)
+                            else target.setTag(R.id.markdownSource, null) // Plain text remains; a later render may retry.
+                        }
+                    } }
+                }
+            }
         }
     }
-    fun close() { closed = true; executor.shutdownNow(); main.removeCallbacksAndMessages(null); cache.evictAll() }
+    fun close() { closed = true; executor.shutdownNow(); main.removeCallbacksAndMessages(null); waiting.clear(); cache.evictAll() }
 }

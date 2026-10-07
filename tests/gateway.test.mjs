@@ -13,6 +13,17 @@ const pause=()=>new Promise(r=>setTimeout(r,40));
 function inbox(emitter,ev='message'){const queue=[],wait=[];emitter.on(ev,b=>{let v;try{v=JSON.parse(String(b))}catch{return;}const p=wait.shift();if(p)p(v);else queue.push(v);});return async(predicate=()=>true)=>{for(let i=0;i<100;i++){const v=queue.length?queue.shift():await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error('message timeout')),3000);wait.push(v=>{clearTimeout(timeout);resolve(v)});});if(predicate(v))return v;}throw Error('Not found');};}
 async function fixture(t){const dir=await mkdtemp(path.join(tmpdir(),'pim-'));const g=await createGateway({dataDir:dir,port:0,orca:false});t.after(async()=>{await g.close();await rm(dir,{recursive:true,force:true})});const base=`http://127.0.0.1:${g.port}`,headers={Authorization:`Bearer ${g.token}`};return {g,dir,base,headers};}
 async function bridge(g,id){const s=net.connect(g.socketPath);await once(s,'connect');s.write(JSON.stringify({type:'register',meta:{id,title:id,cwd:'/tmp/'+id,terminalId:id,workspaceId:'workspace-'+id},messages:[{role:'user',content:'history '+id,timestamp:1},{role:'toolResult',toolName:'read',toolCallId:'img',content:[image]}],status:'idle'})+'\n');await pause();return s;}
+test('malformed optional registry/timeline/phase entries do not disconnect the live owner',async t=>{
+ const {g,base,headers}=await fixture(t),owner=await bridge(g,'nullable');
+ owner.write(JSON.stringify({type:'snapshot',id:'nullable',status:'idle',meta:{models:[null,3,{provider:'p',id:'m'}]},
+  messages:[{role:'user',content:'still connected',timestamp:2}],turns:[null,{id:'t',startedAt:1}]})+'\n');
+ owner.write(JSON.stringify({type:'orchestration',id:'nullable',data:{liveAvailable:true,agents:[{id:'a'}],workflows:[{id:'w',phases:[null,{title:'Build'}]}]}})+'\n');
+ await pause();
+ const snap=await(await fetch(base+'/api/sessions/nullable',{headers})).json();
+ assert.equal(snap.connected,true);assert.equal(snap.configuration.models.length,1);assert.equal(snap.turns.length,1);
+ const activity=await(await fetch(base+'/api/sessions/nullable/orchestration',{headers})).json();
+ assert.equal(activity.workflows[0].phases.length,1);assert.equal(Object.hasOwn(activity.agents[0],'toolCalls'),false);
+});
 test('image validation rejects MIME mismatch and unsupported formats',()=>{assert.ok(decodeImage(image).length);assert.throws(()=>decodeImage({...image,mimeType:'image/jpeg'}));assert.throws(()=>decodeImage({...image,data:'bad'}));assert.throws(()=>validateCommand({sessionId:'s',requestId:'r',command:'prompt',text:'',images:[]}));assert.throws(()=>validateCommand({sessionId:'../x',requestId:'r',command:'abort'}));});
 test('auth HTTP/WS, private files, origin check, image scoping and bounds',async t=>{const {g,dir,base,headers}=await fixture(t);assert.equal((await stat(dir)).mode&0o777,0o700);assert.equal((await stat(g.socketPath)).mode&0o777,0o600);assert.equal((await fetch(base+'/api/catalog')).status,401);assert.equal((await fetch(base+'/health')).status,200);assert.equal((await fetch(base+'/api/catalog',{headers:{...headers,Origin:'https://evil.test'}})).status,403);
  await bridge(g,'s1');await bridge(g,'s2');const cat=await (await fetch(base+'/api/catalog',{headers})).json();assert.equal(cat.sessions.length,2);assert.equal(cat.workspaces.length,2);

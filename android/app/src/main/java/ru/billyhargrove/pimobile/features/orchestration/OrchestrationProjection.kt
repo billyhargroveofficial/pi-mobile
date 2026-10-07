@@ -4,25 +4,13 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import ru.billyhargrove.pimobile.core.OrchestrationData
+import ru.billyhargrove.pimobile.core.AgentMetrics
 
 /** Snapshot projection only: no fetching, navigation, clocks or transcript ownership. */
 internal object OrchestrationProjection {
     data class Row(val kind: String, val data: JSONObject)
-    data class WorkflowMetrics(val tools: Long?, val tokens: Long?) {
-        val label = listOfNotNull(tools?.let { "$it tools" }, tokens?.let { "$it tokens" }).joinToString(" · ")
-    }
     data class Snapshot(val data: JSONObject, val workflow: JSONObject?, val rows: List<Row>, val subtitle: String, val notice: String,
-        val workflowMetrics: Map<String, WorkflowMetrics>)
-
-    private fun metrics(agents: List<JSONObject>): WorkflowMetrics {
-        var tools: Long? = null
-        var tokens: Long? = null
-        for (agent in agents) {
-            if (agent.has("toolCalls")) tools = (tools ?: 0) + agent.optLong("toolCalls").coerceAtLeast(0)
-            if (agent.has("outputTokens")) tokens = (tokens ?: 0) + agent.optLong("outputTokens").coerceAtLeast(0)
-        }
-        return WorkflowMetrics(tools, tokens)
-    }
+        val workflowMetrics: Map<String, AgentMetrics>)
 
     fun project(data: JSONObject, workflowId: String, parentAgent: String?): Snapshot {
         val shown = if (parentAgent == null) data else try {
@@ -45,7 +33,7 @@ internal object OrchestrationProjection {
         val agents = if (workflowId.isEmpty()) allAgents else allAgents.filter { it.optString("workflowId") == workflowId }
         // Aggregate once per accepted snapshot, not for every Compose elapsed-time tick.
         val byWorkflow = allAgents.groupBy { it.optString("workflowId") }
-        val workflowMetrics = workflows.associate { it.optString("id") to metrics(byWorkflow[it.optString("id")].orEmpty()) }
+        val workflowMetrics = workflows.associate { it.optString("id") to AgentMetrics.from(byWorkflow[it.optString("id")].orEmpty()) }
         val rows = buildList {
             if (workflowId.isEmpty()) {
                 for (flow in workflows) add(Row("workflow", flow))

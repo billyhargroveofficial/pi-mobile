@@ -14,7 +14,7 @@ class TranscriptPresentationTest {
         model.metadata(JSONObject().put("activeTurnId", "turn"))
         model.submit(listOf(message("u", ChatMessage.Role.USER), message("t1", ChatMessage.Role.TOOL_RESULT),
             message("p", ChatMessage.Role.ASSISTANT), message("t2", ChatMessage.Role.TOOL_RESULT)))
-        assertEquals(listOf("u", "work-header:tools:turn:t1", "progress:p", "work-header:tools:turn:t2"), model.items().map { it.row.key })
+        assertEquals(listOf("u", "work-header:tools:turn:t1", "p", "work-header:tools:turn:t2"), model.items().map { it.row.key })
         assertTrue(model.items().filter { it.row.header }.all { it.expanded })
         val done = JSONObject().put("status", "idle").put("activeTurnId", "")
         model.metadata(done)

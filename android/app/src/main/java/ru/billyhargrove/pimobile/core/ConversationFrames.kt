@@ -8,7 +8,26 @@ import org.json.JSONObject
 object ConversationFrames {
     @JvmStatic @Throws(JSONException::class)
     fun merge(prior: JSONObject?, frame: JSONObject): JSONObject {
-        if (prior == null || frame.optString("type") == "snapshot") return JSONObject(frame.toString())
+        if (prior == null) return JSONObject(frame.toString())
+        if (frame.optString("type") == "snapshot") {
+            val fresh = JSONObject(frame.toString())
+            // A same-epoch paginated snapshot is authoritative for its tail, not
+            // for the prefix the reader already fetched. Require overlap so a
+            // disconnected gap is never silently presented as continuous history.
+            if (prior.optLong("epoch") != frame.optLong("epoch") ||
+                frame.optJSONObject("history")?.optBoolean("hasMore") != true) return fresh
+            val old = linkedMapOf<String, JSONObject>(); add(old, prior.optJSONArray("messages"))
+            val tail = linkedMapOf<String, JSONObject>(); add(tail, frame.optJSONArray("messages"))
+            val boundary = tail.keys.firstOrNull() ?: return fresh
+            if (boundary !in old) return fresh
+            val prefix = old.entries.takeWhile { it.key != boundary }.map { it.value }
+            if (prefix.isEmpty()) return fresh
+            val result = JSONArray((prefix + tail.values).takeLast(1500))
+            fresh.put("messages", result)
+            if (prior.has("history") && result.length() == prefix.size + tail.size)
+                fresh.put("history", prior.get("history"))
+            return fresh
+        }
         val out = JSONObject(prior.toString())
         for (key in frame.keys()) if (key !in setOf("messages", "removedIds", "order", "resumed", "type")) out.put(key, frame.get(key))
         val rows = linkedMapOf<String, JSONObject>()

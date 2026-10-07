@@ -18,6 +18,7 @@ import {cachedUsage,readUsage} from './usage.mjs';
 import {resumeDelta} from './conversation-sync.mjs';
 import {configuration,pageMetadata,sessionSnapshot,sessionChange} from './session-projection.mjs';
 import {OrchestrationStore,cleanOrchestration,cleanAgentDetail} from './orchestration.mjs';
+import {CommandReceipts} from '../contracts/command-receipts.mjs';
 
 const MAX_FRAME=32*1024*1024;
 const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
@@ -33,7 +34,7 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
   let token=providedToken;
   if(!token){if(!fs.existsSync(tokenFile))fs.writeFileSync(tokenFile,crypto.randomBytes(32).toString('base64url'),{mode:0o600,flag:'wx'}); token=fs.readFileSync(tokenFile,'utf8').trim(); fs.chmodSync(tokenFile,0o600);}
   if(typeof token!=='string'||token.length<32)throw Error('Token too short');
-  const expected=hash(token),sessions=new Map(),pending=new Map(),receipts=new Map(),bridges=new Set(),media=new MediaCache();
+  const expected=hash(token),sessions=new Map(),pending=new Map(),receipts=new CommandReceipts(),bridges=new Set(),media=new MediaCache();
   let speechBusy=false;
   let inventory={workspaces:[],terminals:[],truncated:false,omittedHostIds:[]},inventoryError=null,closed=false;
   const authorized=req=>{const a=req.headers.authorization||'';return a.startsWith('Bearer ')&&crypto.timingSafeEqual(Buffer.from(hash(a.slice(7))),Buffer.from(expected));};
@@ -117,8 +118,7 @@ export async function createGateway({dataDir,port=8788,host='127.0.0.1',orca=tru
     const p=pending.get(requestId);if(!p)return;
     clearTimeout(p.timer);pending.delete(requestId);
     if(p.command==='agent_transcript'){if(ack.ok)p.resolve(ack.data);else p.reject(Error(ack.error||'Inspection unavailable'));return;}
-    const result={type:'ack',requestId,sessionId:p.sessionId,...ack};if(!['history','document'].includes(p.command))receipts.set(requestId,{result,hash:p.hash});
-    if(receipts.size>1000)receipts.delete(receipts.keys().next().value);
+    const result={type:'ack',requestId,sessionId:p.sessionId,...ack};receipts.remember(p.command,requestId,{result,hash:p.hash});
     for(const ws of p.clients)send(ws,result);
   }
   wss.on('connection',ws=>{

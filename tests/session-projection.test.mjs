@@ -20,6 +20,16 @@ test('page metadata preserves cursor and bounded most recent turn metrics',()=>{
  assert.equal(p.turns[0].id,'t2');assert.equal(p.turns[0].outputTokens,0);assert.equal(p.epoch,7);
 });
 
+test('malformed nullable registry and timeline rows do not take down the registered bridge',()=>{
+ const c=configuration({thinkingLevel:'secret'.repeat(10000),skills:[null,3,[],{name:'valid',description:'safe'}],models:[null,undefined,4,[],{provider:'p',id:'m'}],execution:[]});
+ assert.equal(c.thinkingLevel,'off');assert.equal(c.execution,null);assert.equal(c.models.length,1);assert.equal(c.skills.length,1);
+ for(const input of [null,undefined,[],3]){assert.doesNotThrow(()=>configuration(input));assert.doesNotThrow(()=>pageMetadata(input));}
+ const p=pageMetadata({epoch:Infinity,activeTurnId:'t'.repeat(1000),turns:[null,7,[],{id:'ok',startedAt:Infinity,finishedAt:-1,outputTokens:Infinity,generationMs:NaN}]});
+ assert.equal(p.activeTurnId.length,500);assert.equal(p.epoch,0);assert.equal(p.turns.length,1);
+ assert.deepEqual(p.turns[0],{id:'ok',startedAt:0,finishedAt:null,outputTokens:0,generationMs:0});
+ assert.equal(configuration({models:Array(1001).fill({provider:'p',id:'m'})}).modelsTruncated,true);
+});
+
 test('snapshot stream is scoped to session, bridge ownership and epoch',()=>{
  const s=session(),snap=sessionSnapshot(s,'gateway');
  assert.equal(snap.type,'snapshot');assert.equal(snap.sessionId,'agent-one');assert.equal(snap.checkpoint.stream,'gateway:agent-one:bridge-1');

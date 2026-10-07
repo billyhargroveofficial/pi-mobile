@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import org.json.JSONObject
 import ru.billyhargrove.pimobile.core.OrchestrationData
+import ru.billyhargrove.pimobile.core.AgentMetrics
 import ru.billyhargrove.pimobile.net.AppExecutors
 
 /** Lifecycle discovery with an injected read-only fetcher; no app shell or navigation dependency. */
@@ -54,8 +55,13 @@ class OrchestrationEntry(private val fetch: () -> JSONObject?) {
 /** Two distinct live surfaces, not a permanent aggregate/history plaque. Read-only callbacks only. */
 @Composable
 fun ActiveOrchestration(data: JSONObject, open: (String, String, String) -> Unit, compact: Boolean = false) {
-    val flows = OrchestrationData.activeWorkflows(data)
-    val standalone = OrchestrationData.activeStandalone(data)
+    val flows = remember(data) { OrchestrationData.activeWorkflows(data) }
+    val standalone = remember(data) { OrchestrationData.activeStandalone(data) }
+    val workflowMetrics = remember(data) {
+        val agents = OrchestrationData.agents(data, null).groupBy { it.optString("workflowId") }
+        flows.associate { it.optString("id") to activityMetrics(agents[it.optString("id")].orEmpty(), it) }
+    }
+    val standaloneMetrics = remember(data) { activityMetrics(standalone, null) }
     if (flows.isEmpty() && standalone.isEmpty()) return
     val prefix = "${LocalContext.current.packageName}:id/"
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -68,11 +74,11 @@ fun ActiveOrchestration(data: JSONObject, open: (String, String, String) -> Unit
             flows.forEach { flow ->
                 val phase = OrchestrationData.objects(flow.optJSONArray("phases")).firstOrNull { it.optString("status") == "running" }?.optString("title")
                 CompactActivity("Workflow · ${phase ?: flow.optString("title", "Workflow")}",
-                    aggregateMetrics(OrchestrationData.agents(data, flow.optString("id")), flow, now), prefix + "activeWorkflow") {
+                    workflowMetrics.getValue(flow.optString("id")).label(now), prefix + "activeWorkflow") {
                     open("workflow", flow.optString("id"), flow.optString("title", "Workflow"))
                 }
             }
-            if (standalone.isNotEmpty()) CompactActivity("Agents · ${standalone.size}", aggregateMetrics(standalone, null, now), prefix + "activeAgents") {
+            if (standalone.isNotEmpty()) CompactActivity("Agents · ${standalone.size}", standaloneMetrics.label(now), prefix + "activeAgents") {
                 val single = standalone.singleOrNull()
                 if (single != null) open("agent", single.optString("id"), single.optString("name", "Agent")) else open("", "", "Agents")
             }
@@ -85,7 +91,6 @@ fun ActiveOrchestration(data: JSONObject, open: (String, String, String) -> Unit
             val pageWidth = maxWidth
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 flows.forEach { flow ->
-                    val agents = OrchestrationData.agents(data, flow.optString("id"))
                     Column(Modifier.width(pageWidth).clip(RoundedCornerShape(20.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .clickable { open("workflow", flow.optString("id"), flow.optString("title", "Workflow")) }
@@ -99,7 +104,7 @@ fun ActiveOrchestration(data: JSONObject, open: (String, String, String) -> Unit
                                 fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         val phase = OrchestrationData.objects(flow.optJSONArray("phases")).firstOrNull { it.optString("status") == "running" }?.optString("title")
-                        Text((if (compact && !phase.isNullOrEmpty()) "$phase · " else "") + aggregateMetrics(agents, flow, now), Modifier.padding(top = 4.dp), fontSize = 11.sp,
+                        Text((if (compact && !phase.isNullOrEmpty()) "$phase · " else "") + workflowMetrics.getValue(flow.optString("id")).label(now), Modifier.padding(top = 4.dp), fontSize = 11.sp,
                             maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (!compact) Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             val phases = OrchestrationData.objects(flow.optJSONArray("phases"))
@@ -132,7 +137,7 @@ fun ActiveOrchestration(data: JSONObject, open: (String, String, String) -> Unit
             Column(Modifier.weight(1f).padding(start = 10.dp)) {
                 Text(if (standalone.size == 1) standalone.first().optString("name", "Agent") else "${standalone.size} active agents",
                     fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(aggregateMetrics(standalone, null, now), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Text(standaloneMetrics.label(now), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Text("›", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -153,13 +158,16 @@ private fun CompactActivity(title: String, metrics: String, tag: String, open: (
 
 private fun phaseGlyph(status: String) = when (status) { "completed" -> "✓"; "running" -> "●"; "failed" -> "!"; else -> "○" }
 
-private fun aggregateMetrics(agents: List<JSONObject>, flow: JSONObject?, now: Long): String = buildList {
-    if (flow != null) add("${agents.count { OrchestrationData.active(it.optString("status")) }} active")
-    if (agents.any { it.has("toolCalls") }) add("${agents.sumOf { it.optLong("toolCalls").coerceAtLeast(0) }} tools")
-    if (agents.any { it.has("outputTokens") }) add("${agents.sumOf { it.optLong("outputTokens").coerceAtLeast(0) }} tokens")
+private data class ActivityMetrics(val static: String, val clock: JSONObject?) {
+    fun label(now: Long) = listOfNotNull(static.takeIf(String::isNotEmpty),
+        clock?.let { OrchestrationData.duration(it, now) }?.takeIf(String::isNotEmpty)).joinToString(" · ")
+}
+private fun activityMetrics(agents: List<JSONObject>, flow: JSONObject?): ActivityMetrics {
+    val static = listOfNotNull(flow?.let { "${agents.count { OrchestrationData.active(it.optString("status")) }} active" },
+        AgentMetrics.from(agents).label.takeIf(String::isNotEmpty)).joinToString(" · ")
     val clock = flow ?: agents.filter { it.optLong("startedAt") > 0 }.minByOrNull { it.optLong("startedAt") }
-    clock?.let { OrchestrationData.duration(it, now).takeIf(String::isNotEmpty)?.let(::add) }
-}.joinToString(" · ")
+    return ActivityMetrics(static, clock)
+}
 
 @Composable
 private fun ActivityDot(status: String) {

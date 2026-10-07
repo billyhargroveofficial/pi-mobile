@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.*
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.*
 import org.json.JSONArray
+import ru.billyhargrove.pimobile.features.chat.ModelCapabilities
 
 /** Session-local priority request; provider confirmation remains a separate status. */
 class TierToggle(context: Context) : FrameLayout(context) {
@@ -27,7 +28,7 @@ class TierToggle(context: Context) : FrameLayout(context) {
     }
     fun value(): String? = if (available) choice else null
     override fun setEnabled(enabled: Boolean) { super.setEnabled(enabled); editable = enabled }
-    companion object { @JvmStatic fun supportsFast(tiers: JSONArray?) = (0 until (tiers?.length() ?: 0)).any { tiers?.optString(it) == "fast" } }
+    companion object { @JvmStatic fun supportsFast(tiers: JSONArray?) = ModelCapabilities.supportsFast(tiers) }
 }
 
 @Composable

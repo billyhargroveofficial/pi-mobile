@@ -14,10 +14,13 @@ object ChatFixture {
         var writes = 0
         var failWrite = false
         var reads = 0
+        var savedViewport: JSONObject? = null
         override fun connection() = ConnectionState.CONNECTED
         override fun configuration(session: String): JSONObject? = null
-        override fun viewport(session: String): JSONObject? = null
-        override fun saveViewport(session: String, key: String, offset: Int, follow: Boolean) {}
+        override fun viewport(session: String): JSONObject? = savedViewport
+        override fun saveViewport(session: String, key: String, offset: Int, follow: Boolean) {
+            savedViewport = JSONObject().put("anchor", key).put("offset", offset).put("follow", follow)
+        }
         override fun subscribe(session: String) {}
         override fun prompt(session: String, text: String, payloads: List<ImagePayload>, behavior: CommandBuilder.Behavior): String? {
             writes++; return if (failWrite) null else "request-$writes"

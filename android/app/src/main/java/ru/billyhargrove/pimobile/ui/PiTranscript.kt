@@ -5,12 +5,15 @@ import android.widget.TextView
 import java.util.Locale
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -33,6 +36,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.colorResource
@@ -69,16 +73,45 @@ fun PiTranscript(
     modifier: Modifier = Modifier,
     actions: TranscriptActions? = null,
     contentPadding: PaddingValues = PaddingValues(top = 8.dp, bottom = 24.dp),
-    followTailEnabled: Boolean = true
+    followTailEnabled: Boolean = true,
+    smoothFollowTail: Boolean = false,
+    arrivalRevision: Int = 0,
+    arrivingKeys: Set<String> = emptySet()
 ) {
     val context = LocalContext.current
     val currentActions by rememberUpdatedState(actions)
     val markdown = remember(context) { MarkdownRenderer(context) { currentActions?.document?.invoke(it) } }
     DisposableEffect(markdown) { onDispose { markdown.close() } }
-    LaunchedEffect(followTailRevision) {
-        if (followTailEnabled && items.isNotEmpty() && !state.isScrollInProgress) {
-            state.scrollToItem(items.lastIndex)
-            state.scrollBy(Float.MAX_VALUE)
+    LaunchedEffect(followTailRevision, followTailEnabled) {
+        if (followTailEnabled && items.isNotEmpty() && (!state.isScrollInProgress || smoothFollowTail)) {
+            val animate = smoothFollowTail && ExpressiveMotion.enabled()
+            if (state.layoutInfo.visibleItemsInfo.none { it.index == items.lastIndex }) {
+                if (animate) {
+                    // Lazy rows outside the viewport are not measured yet. Move
+                    // through bounded measured estimates with a visible duration,
+                    // then settle the actual final extent below.
+                    repeat(3) {
+                        val visible = state.layoutInfo.visibleItemsInfo
+                        if (visible.isNotEmpty() && visible.none { it.index == items.lastIndex }) {
+                            val average = visible.sumOf { it.size }.toFloat() / visible.size
+                            val distance = (items.lastIndex - visible.last().index) * average
+                            state.animateScrollBy(distance, tween(360, easing = FastOutSlowInEasing))
+                        }
+                    }
+                    if (state.layoutInfo.visibleItemsInfo.none { it.index == items.lastIndex }) state.animateScrollToItem(items.lastIndex)
+                } else state.scrollToItem(items.lastIndex)
+            }
+            // Native Markdown finishes measuring asynchronously. Follow the
+            // measured bottom, rather than moving the final row to the top.
+            repeat(3) {
+                withFrameNanos { }
+                val layout = state.layoutInfo
+                val last = layout.visibleItemsInfo.lastOrNull { it.index == items.lastIndex }
+                val remaining = last?.let { it.offset + it.size + layout.afterContentPadding - layout.viewportEndOffset } ?: 0
+                if (remaining > 0) {
+                    if (animate) state.animateScrollBy(remaining.toFloat(), tween(240)) else state.scrollBy(remaining.toFloat())
+                }
+            }
         }
     }
     // Receipt belongs to the newest USER submission, not each historical bubble.
@@ -86,10 +119,25 @@ fun PiTranscript(
     val lastUserKey = items.lastOrNull { it.row.message?.role() == ChatMessage.Role.USER }?.row?.message?.stableKey()
     LazyColumn(modifier, state = state, contentPadding = contentPadding) {
         items(items, key = { it.row.key }, contentType = { if (it.row.header) "tools" else "message" }) { item ->
-            if (item.row.header) ToolGroup(item, markdown) { onToggle(item.row.group) }
-            else item.row.message?.let { MessageBubble(it, markdown, loader, actions, it.stableKey() == lastUserKey) }
+            TranscriptArrival(arrivalRevision, item.row.key in arrivingKeys) {
+                if (item.row.header) ToolGroup(item, markdown) { onToggle(item.row.group) }
+                else item.row.message?.let { MessageBubble(it, markdown, loader, actions, it.stableKey() == lastUserKey) }
+            }
         }
     }
+}
+
+/** Opacity does not change row geometry or restart for streaming text chunks. */
+@Composable
+private fun TranscriptArrival(revision: Int, arriving: Boolean, content: @Composable () -> Unit) {
+    val opacity = remember { Animatable(if (arriving && ExpressiveMotion.enabled()) .25f else 1f) }
+    LaunchedEffect(revision) {
+        if (arriving && ExpressiveMotion.enabled()) {
+            opacity.snapTo(.25f)
+            opacity.animateTo(1f, tween(360, easing = FastOutSlowInEasing))
+        } else opacity.snapTo(1f)
+    }
+    Box(Modifier.graphicsLayer { alpha = opacity.value }) { content() }
 }
 
 @Composable

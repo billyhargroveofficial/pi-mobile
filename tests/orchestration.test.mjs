@@ -2,6 +2,16 @@ import test from 'node:test';import assert from 'node:assert/strict';import fs f
 import {projectState,MobileOrchestration} from '../extension/mobile-orchestration.ts';
 import {publicMessages} from '../contracts/agent-transcript.mjs';
 import {OrchestrationStore,cleanOrchestration,cleanAgentDetail} from '../server/orchestration.mjs';
+
+test('wire activity preserves missing counters and ignores malformed phase rows',()=>{
+ const value=cleanOrchestration({agents:[{id:'unknown'},{id:'zero',toolCalls:0,outputTokens:0},{id:'invalid',toolCalls:Infinity,outputTokens:'wrong'}],
+  workflows:[{id:'w',phases:[null,3,[],{title:'Build',status:'running'}]}]});
+ assert.equal(Object.hasOwn(value.agents[0],'toolCalls'),false);assert.equal(Object.hasOwn(value.agents[0],'outputTokens'),false);
+ assert.equal(value.agents[1].toolCalls,0);assert.equal(value.agents[1].outputTokens,0);
+ assert.equal(Object.hasOwn(value.agents[2],'toolCalls'),false);assert.equal(Object.hasOwn(value.agents[2],'outputTokens'),false);
+ assert.equal(value.workflows[0].phases.length,1);assert.equal(value.workflows[0].phases[0].title,'Build');
+ assert.equal(Object.hasOwn(cleanAgentDetail({agent:{id:'unknown'},messages:[]}).agent,'toolCalls'),false);
+});
 import {patchSource,insertion} from '../scripts/install-subagent-observer.mjs';
 import {createGateway} from '../server/gateway.mjs';import mobile from '../extension/mobile.ts';
 const pause=()=>new Promise(r=>setTimeout(r,120));

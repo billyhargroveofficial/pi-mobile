@@ -14,11 +14,27 @@ confirmation. History owns its permanent-delete confirmation before calling
 cannot overwrite a new lifecycle, and unknown launch results never auto-retry.
 Bare terminals remain unbridged rather than opening as controllable Pi sessions.
 
-`ui/ArchiveSheet` owns debounced search, generation invalidation and pagination;
-`ui/UsageCards` owns lifecycle polling and reported-window summaries. Both render
-Compose. Marking a fixture connected does not authorize a real command: synthetic
-UI tests bind a credential-free owner to the same production screen.
+`ArchiveSession` owns debounced search, request identity, pagination, pending delete
+results and the explicit permanent-delete confirmation. `ArchiveProjection` copies
+the wire rows, validates advancing bounded cursors and builds unique stable date
+groups, even when a date occurs in separate runs. `ArchiveScreen` renders these
+entries. `ui/ArchiveSheet` only adapts the Android modal, I/O, callbacks and timer.
+Successful deletion refreshes the current query; a retired search/deletion failure
+cannot overwrite another query, and pending deletion cannot be submitted twice.
 
-Checks: CatalogSessionTest, SessionGroupingTest, CatalogParserTest, ExpressiveUiTest,
-DesignPreviewTest, and Node archive/usage tests. Keep screen/font/IME/theme, source
+`UsageSession` owns credential-scoped single-flight polling and detail selection;
+`UsageProjection` copies all finite reported quotas, their labels and freshness
+once per accepted snapshot. `UsageScreen` renders immutable values, preserving
+unknown usage versus reported zero. Opening details does not scan JSON again.
+`ui/UsageCards` is the Android HTTP/timer adapter and keeps the existing preview API.
+Both adapters retain their existing callers. State accepts only injected callbacks
+on the main thread; projections have no platform or Compose dependency, and the
+source guard rejects transport calls or reversed state/screen dependencies.
+
+Marking a fixture connected does not authorize a real command: synthetic UI tests
+bind a credential-free owner to the same production screen.
+
+Checks: CatalogSessionTest, UsageSessionTest, ArchiveSessionTest, UsageProjectionTest,
+ArchiveProjectionTest, CatalogDataUiTest, SessionGroupingTest, CatalogParserTest,
+ExpressiveUiTest, DesignPreviewTest, and Node archive/usage tests. Keep screen/font/IME/theme, source
 ownership and private-data upgrade acceptance in the full migration gate.

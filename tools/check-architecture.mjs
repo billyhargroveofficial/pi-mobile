@@ -14,7 +14,7 @@ const sourceContractPeers={
 const sourceContracts={
  'platform-free-state':{deny:['android','androidx',`${namespace}.net`,`${namespace}.store`,`${namespace}.media`,`${namespace}.ui`],allow:['androidx.compose.runtime']},
  'pure-projection':{deny:['android','androidx','kotlinx.coroutines',`${namespace}.net`,`${namespace}.store`,`${namespace}.media`,`${namespace}.ui`]},
- 'presentation-only':{deny:['android','java.net','okhttp3',`${namespace}.net`,`${namespace}.store`],allow:[`${namespace}.net.MediaLoader`]},
+ 'presentation-only':{deny:['android','java.net','okhttp3',`${namespace}.net`,`${namespace}.store`],allow:['android.graphics.Rect',`${namespace}.net.MediaLoader`]},
 };
 
 // Skip comments/literals, but retain Kotlin interpolation expressions as code.

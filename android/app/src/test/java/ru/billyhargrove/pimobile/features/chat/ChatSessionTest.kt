@@ -15,6 +15,8 @@ class ChatSessionTest {
         var subscriptions = 0
         var saved: Triple<String, Int, Boolean>? = null
         var cached: JSONObject? = null
+        var liveRequests: Set<String>? = null
+        override fun pendingRequests(session: String) = liveRequests
         val commands = mutableListOf<Pair<String, JSONObject>>()
         override fun connection() = ConnectionState.CONNECTED
         override fun configuration(session: String): JSONObject? = null
@@ -140,5 +142,61 @@ class ChatSessionTest {
         f.chat.onAck(Ack("p1", "s", true, "")); f.chat.onCommandUncertain("p1", "s", "late")
         assertEquals(ChatMessage.LocalState.ACCEPTED, f.persisted.single().localState())
         f.chat.onSnapshot(snapshot(message("echo", text = "prompt"))); assertTrue(f.persisted.isEmpty()); assertEquals("echo", f.chat.items.single().row.message!!.id())
+    }
+    @Test fun returningAfterDetachedAcksOrTimeoutsUnblocksRequestsWithoutReplay() {
+        val f = Fixture(); f.chat.onTimelineMeta(meta(1)); f.chat.onSnapshot(snapshot(message("tail")))
+        f.chat.composer = TextFieldValue("prompt"); f.chat.send(CommandBuilder.Behavior.FOLLOW_UP)
+        f.chat.loadOlder(); f.chat.document("README.md"); f.chat.configure(null, null, "high", null, false)
+        f.wire.liveRequests = emptySet(); val writes = f.wire.writes
+        f.chat.start()
+        assertFalse(f.chat.configurationPending); assertFalse(f.chat.historyLoading)
+        assertEquals(ChatMessage.LocalState.UNCERTAIN, f.persisted.single().localState())
+        assertEquals(writes, f.wire.writes)
+        // Clearing a missing document ticket allows an explicit later read.
+        f.chat.document("other.md"); assertEquals(3, f.wire.commands.size)
+        f.chat.onAck(Ack("p1", "s", true, ""))
+        assertEquals(ChatMessage.LocalState.ACCEPTED, f.persisted.single().localState())
+    }
+    @Test fun returningWithStillLiveTicketsDoesNotInventAnUncertainResult() {
+        val f = Fixture(); f.chat.onSnapshot(snapshot()); f.chat.composer = TextFieldValue("prompt")
+        f.chat.send(CommandBuilder.Behavior.FOLLOW_UP); f.chat.configure(null, null, "high", null, false)
+        f.wire.liveRequests = setOf("p1", "c2"); f.chat.start()
+        assertTrue(f.chat.configurationPending); assertEquals(ChatMessage.LocalState.SENDING, f.persisted.single().localState())
+        assertEquals(2, f.wire.writes)
+    }
+    @Test fun returningAnimatesChangedRowsOnceWithoutFollowingAReaderAboveTheTail() {
+        val f = Fixture(); f.chat.onTimelineMeta(meta(1, more = false))
+        f.chat.onSnapshot(snapshot(message("u"), message("a", ChatMessage.Role.ASSISTANT, "old")))
+        f.chat.readerDragged(); val tail = f.chat.tailRevision
+        f.chat.start(); f.chat.onTimelineMeta(meta(1, more = false, cached = true))
+        f.chat.onSnapshot(snapshot(message("u"), message("a", ChatMessage.Role.ASSISTANT, "caught up"), message("b", ChatMessage.Role.ASSISTANT)))
+        assertEquals(setOf("a", "b"), f.chat.arrivingKeys); assertEquals(tail, f.chat.tailRevision)
+        val arrival = f.chat.arrivalRevision; f.chat.arrivalsShown(arrival)
+        f.chat.onTimelineMeta(JSONObject().put("sessionId", "s").put("type", "messages"))
+        f.chat.onMessages(MessagesUpdate("s", listOf(message("b", ChatMessage.Role.ASSISTANT, "stream")), emptyList(), SessionStatus.UNKNOWN, false, false, false, false, false))
+        f.chat.arrivalsShown(f.chat.arrivalRevision)
+        f.chat.onMessages(MessagesUpdate("s", listOf(message("b", ChatMessage.Role.ASSISTANT, "next chunk")), emptyList(), SessionStatus.UNKNOWN, false, false, false, false, false))
+        assertTrue(f.chat.arrivingKeys.isEmpty()); assertEquals(tail, f.chat.tailRevision)
+    }
+    @Test fun oldArrivalCompletionCannotClearANewerBatchAndHistoryDoesNotAnimate() {
+        val f = Fixture(); f.chat.onTimelineMeta(meta(1)); f.chat.onSnapshot(snapshot(message("u")))
+        f.chat.readerDragged()
+        fun append(id: String) = f.chat.onMessages(MessagesUpdate("s", listOf(message(id)), emptyList(), SessionStatus.UNKNOWN, false, false, false, false, false))
+        append("a"); val first = f.chat.arrivalRevision; append("b")
+        f.chat.arrivalsShown(first); assertEquals(setOf("b"), f.chat.arrivingKeys)
+        f.chat.arrivalsShown(f.chat.arrivalRevision); f.chat.loadOlder()
+        f.chat.onData("r1", "s", JSONObject().put("type", "history").put("epoch", 1).put("messages", JSONArray().put(JSONObject().put("id", "old").put("role", "user").put("text", "old"))))
+        assertTrue(f.chat.arrivingKeys.isEmpty()); assertFalse(f.chat.followTail)
+    }
+    @Test fun newEpochResetsOldDisclosureButKeepsTheNewActiveTurnMetadata() {
+        val f = Fixture(); f.chat.onTimelineMeta(meta(1, more = false))
+        f.chat.onSnapshot(snapshot(message("old")))
+        f.chat.onTimelineMeta(meta(2, more = false).put("activeTurnId", "new-turn").put("status", "running"))
+        val user = message("new-user").withPresentation("new-turn", "final", "", "")
+        val tool = message("new-tool", ChatMessage.Role.TOOL_RESULT).withPresentation("new-turn", "work", "", "")
+        f.chat.onSnapshot(Snapshot("s", SessionStatus.RUNNING, true, listOf(user, tool), false))
+        assertEquals("new-turn", f.chat.metadata.optString("activeTurnId"))
+        assertTrue(f.chat.items.first { it.row.header }.expanded)
+        assertFalse(f.chat.items.any { it.row.key == "old" })
     }
 }

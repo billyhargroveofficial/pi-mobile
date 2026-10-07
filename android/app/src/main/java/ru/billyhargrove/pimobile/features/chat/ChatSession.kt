@@ -29,6 +29,8 @@ class ChatSession(
         fun abort(session: String): String?
         fun configure(session: String, provider: String?, model: String?, effort: String?, tier: String?): String?
         fun read(session: String, kind: String, args: JSONObject): String?
+        /** Null is only for transports without a ledger (e.g. a stateless preview). */
+        fun pendingRequests(session: String): Set<String>? = null
     }
     sealed interface Effect {
         data class Notice(val text: String) : Effect
@@ -56,12 +58,19 @@ class ChatSession(
     var historyLoading by mutableStateOf(false); private set
     var followTail by mutableStateOf(true); private set
     var tailRevision by mutableIntStateOf(0); private set
+    var smoothTail by mutableStateOf(false); private set
+    var arrivalRevision by mutableIntStateOf(0); private set
+    var arrivingKeys by mutableStateOf<Set<String>>(emptySet()); private set
+    var newActivity by mutableStateOf(false); private set
     var restoreViewport by mutableStateOf<Viewport?>(null); private set
     var configurationPending by mutableStateOf(false); private set
     private val store = TranscriptStore()
     private val presentation = TranscriptPresentation()
     private val outbox = ChatOutbox(sessionId, readOnly, transport::prompt, initialReceipts)
     private var firstRendered = false
+    private var viewportLoaded = false
+    private var catchingUp = false
+    private var resetPresentation = false
     private var historyRequest: String? = null
     private var historyEpoch = 0L
     private var historyBefore = ""
@@ -79,7 +88,15 @@ class ChatSession(
     init { render() }
 
     fun start() {
+        catchingUp = firstRendered
         connection = transport.connection()
+        // The Activity detaches its listener while stopped. ACKs/timeouts can finish
+        // there; recover missing tickets as unknown, never as accepted or replayed.
+        transport.pendingRequests(sessionId)?.let { live ->
+            val owned = listOfNotNull(historyRequest, documentRequest, controlRequest, configurationRequest) +
+                abortRequests.toList() + outbox.localReceipts().filter { it.localState() == ChatMessage.LocalState.SENDING }.map { it.requestId() }
+            owned.filter { it !in live }.forEach { onCommandUncertain(it, sessionId, "The result arrived while this screen was inactive") }
+        }
         configuration = transport.configuration(sessionId)
         transport.subscribe(sessionId)
     }
@@ -87,9 +104,13 @@ class ChatSession(
     fun saveViewport(key: String, offset: Int) {
         if (key.isNotEmpty()) transport.saveViewport(sessionId, key, offset, followTail)
     }
-    fun viewportRestored() { restoreViewport = null }
+    fun viewportRestored() {
+        restoreViewport = null
+        if (followTail) { smoothTail = true; tailRevision++ }
+    }
+    fun arrivalsShown(revision: Int) { if (revision == arrivalRevision) arrivingKeys = emptySet() }
     fun readerDragged() { followTail = false; restoreViewport = null }
-    fun readerSettled(atBottom: Boolean) { followTail = atBottom }
+    fun readerSettled(atBottom: Boolean) { followTail = atBottom; if (atBottom) newActivity = false }
     fun toggle(group: String) { presentation.toggle(group); items = presentation.items() }
     fun thumbnail(request: String, index: Int) = outbox.thumbnail(request, index)
     fun queueRestored(request: String) = outbox.queueRestored(request)
@@ -216,9 +237,11 @@ class ChatSession(
     override fun onTimelineMeta(frame: JSONObject) {
         if (frame.optString("sessionId") != sessionId) return
         cached = frame.optBoolean("cached")
+        val snapshot = frame.optString("type") == "snapshot"
+        if (snapshot && historyEpoch != 0L && historyEpoch != frame.optLong("epoch")) resetPresentation = true
         metadata = frame
-        presentation.metadata(frame); items = presentation.items()
-        if (frame.optString("type") == "snapshot") {
+        presentation.metadata(frame); publishItems(catchingUp)
+        if (snapshot) {
             historyEpoch = frame.optLong("epoch")
             historyRequest = null; historyLoading = false
             readHistory(frame)
@@ -226,14 +249,19 @@ class ChatSession(
     }
     override fun onSnapshot(snapshot: Snapshot) {
         if (snapshot.sessionId() != sessionId) return
-        val viewport = if (cached) transport.viewport(sessionId) else null
+        if (resetPresentation) {
+            presentation.reset(); presentation.metadata(metadata); resetPresentation = false
+        }
+        val viewport = if (cached && !viewportLoaded) transport.viewport(sessionId) else null
+        if (cached) viewportLoaded = true
         if (viewport != null) {
             firstRendered = true; followTail = false
             restoreViewport = Viewport(viewport.optString("anchor"), viewport.optInt("offset"), viewport.optBoolean("follow"))
         }
         loading = false; status = snapshot.status(); truncated = snapshot.truncated()
         presentation.sessionStatus(status)
-        render(store.replaceAll(snapshot.messages()))
+        render(store.replaceAll(snapshot.messages()), catchingUp, !cached)
+        catchingUp = cached
         ensureUserContext()
     }
     override fun onMessages(update: MessagesUpdate) {
@@ -241,7 +269,8 @@ class ChatSession(
         if (update.hasStatus()) status = update.status()
         if (update.hasTruncated()) truncated = update.truncated()
         loading = false; presentation.sessionStatus(status)
-        render(store.apply(update.messages(), update.removedIds()))
+        render(store.apply(update.messages(), update.removedIds()), catchingUp)
+        catchingUp = false
         ensureUserContext()
     }
     override fun onData(request: String, id: String, data: JSONObject) {
@@ -307,14 +336,29 @@ class ChatSession(
         val history = frame.optJSONObject("history") ?: return
         historyBefore = history.optString("before"); hasMore = history.optBoolean("hasMore")
     }
-    private fun render(change: TranscriptStore.ChangeSet? = null) {
+    private fun render(change: TranscriptStore.ChangeSet? = null, animateUpdates: Boolean = false, animateAdded: Boolean = change != null) {
         presentation.submit(outbox.reconcile(store.transcript()))
-        persist(outbox.localReceipts()); queue = outbox.queuedMessages(); items = presentation.items()
+        persist(outbox.localReceipts()); queue = outbox.queuedMessages(); publishItems(animateUpdates, animateAdded)
         val first = !firstRendered && items.isNotEmpty()
-        if (first || (followTail && change?.tailTouched() == true)) tailRevision++
+        if (first || (followTail && change?.tailTouched() == true)) { smoothTail = !first; tailRevision++ }
         if (first) firstRendered = true
     }
-    private fun tail() { followTail = true; restoreViewport = null; tailRevision++ }
+    private fun publishItems(animateUpdates: Boolean, animateAdded: Boolean = false) {
+        val next = presentation.items()
+        if (firstRendered && (animateUpdates || animateAdded)) {
+            val prior = items.associateBy { it.row.key }
+            val arrivals = next.filter { item ->
+                val old = prior[item.row.key]
+                old == null || (animateUpdates && (old.row.message != item.row.message || old.tools != item.tools || old.expanded != item.expanded))
+            }.mapTo(mutableSetOf()) { it.row.key }
+            if (arrivals.isNotEmpty()) {
+                arrivingKeys = arrivals; arrivalRevision++
+                if (!followTail) newActivity = true
+            }
+        }
+        items = next
+    }
+    private fun tail() { followTail = true; newActivity = false; restoreViewport = null; smoothTail = true; tailRevision++ }
     private fun setText(text: String) { composer = TextFieldValue(text, TextRange(text.length)) }
     private fun notice(text: String) { showNotice(text); effect(Effect.Notice(text)) }
     private fun error(ack: Ack) = ack.error().ifEmpty { "no details" }

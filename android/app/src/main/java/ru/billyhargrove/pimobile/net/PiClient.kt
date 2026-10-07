@@ -28,10 +28,11 @@ class PiClient(private val http: OkHttpClient, private val api: HttpApi) : WebSo
         fun onCommandUncertain(requestId: String, sessionId: String, reason: String) {}
         fun onProtocolError(message: String) {}
     }
-    private data class Pending(val requestId: String, val sessionId: String, val timeout: Runnable, val abort: Boolean)
     private val main = Handler(Looper.getMainLooper())
     private val random = Random()
-    private val pending = linkedMapOf<String, Pending>()
+    private val pending = PendingCommands(
+        { timer, delay -> main.postDelayed(timer, delay) }, main::removeCallbacks,
+        { id, session, reason -> listener?.onCommandUncertain(id, session, reason) }, ACK_TIMEOUT_MS)
     @Volatile private var socket: WebSocket? = null
     @Volatile private var shuttingDown = true
     private var listener: Listener? = null
@@ -114,6 +115,7 @@ class PiClient(private val http: OkHttpClient, private val api: HttpApi) : WebSo
             subscriptionGeneration++; subscriptionReady = false; desiredSessionId = null
             lastSnapshot = null; configuration = null; configurationSessionId = ""
         }
+        failAllPending("Connection replaced before acknowledgment")
         this.baseUrl = nextUrl; this.token = nextToken; authRejected = false; attempt = 0; shuttingDown = false
         cancelReconnect(); closeSocket(); setState(ConnectionState.CONNECTING, this.baseUrl); openSocket()
     }
@@ -185,14 +187,18 @@ class PiClient(private val http: OkHttpClient, private val api: HttpApi) : WebSo
     } }
     private fun handleFrame(text: String) {
         if (text.isEmpty()) return
-        val frame = try { JSONObject(text) } catch (_: JSONException) { notifyProtocolError("Unrecognized server frame"); return }
+        var frame = try { JSONObject(text) } catch (_: JSONException) { notifyProtocolError("Unrecognized server frame"); return }
         val type = frame.optString("type", "")
+        val resumed = frame.optBoolean("resumed")
         if (type == "snapshot" || type == "messages") {
             cacheFrame(frame)
+            if (type == "snapshot" || frame.optBoolean("resumed"))
+                frame = conversations[cacheKey(frame.optString("sessionId"))] ?: frame
             frame.optJSONObject("configuration")?.let { configuration = it; configurationSessionId = frame.optString("sessionId", ""); listener?.onConfiguration(configurationSessionId, it) }
             listener?.onTimelineMeta(frame)
         }
-        if (type == "ack" && frame.optBoolean("ok")) frame.optJSONObject("data")?.takeIf { it.optString("type") == "history" }?.let { data ->
+        val scopedAck = type == "ack" && pending.contains(frame.optString("requestId"), frame.optString("sessionId"))
+        if (scopedAck && frame.optBoolean("ok")) frame.optJSONObject("data")?.takeIf { it.optString("type") == "history" }?.let { data ->
             val key = cacheKey(frame.optString("sessionId"))
             try { ConversationFrames.prepend(conversations[key], data)?.let { retain(key, it) } } catch (_: JSONException) { }
         }
@@ -200,33 +206,27 @@ class PiClient(private val http: OkHttpClient, private val api: HttpApi) : WebSo
             "catalog" -> CatalogParser.parse(frame)?.let { catalog = it; listener?.onCatalog(it) }
             "snapshot" -> SnapshotParser.parse(frame)?.let { lastSnapshot = it; listener?.onSnapshot(it) }
             "messages" -> {
-                val restored = if (frame.optBoolean("resumed")) conversations[cacheKey(frame.optString("sessionId"))]?.let(SnapshotParser::parse) else null
+                val restored = if (resumed) conversations[cacheKey(frame.optString("sessionId"))]?.let(SnapshotParser::parse) else null
                 if (restored != null) { lastSnapshot = restored; listener?.onSnapshot(restored) }
                 else MessagesParser.parse(frame)?.let { listener?.onMessages(it) }
             }
             "ack" -> {
-                if (frame.optBoolean("ok")) frame.optJSONObject("data")?.let { listener?.onData(frame.optString("requestId"), frame.optString("sessionId"), it) }
+                if (scopedAck && frame.optBoolean("ok")) frame.optJSONObject("data")?.let { listener?.onData(frame.optString("requestId"), frame.optString("sessionId"), it) }
                 AckParser.parse(frame)?.let(::resolvePending)
             }
             "error" -> notifyProtocolError(AckParser.parseErrorMessage(frame))
         }
     }
     private fun resolvePending(ack: Ack) {
-        val entry = pending[ack.requestId()]
-        if (entry != null && entry.sessionId == ack.sessionId()) { pending.remove(ack.requestId()); main.removeCallbacks(entry.timeout) }
+        pending.resolve(ack.requestId(), ack.sessionId())
+        // A late authoritative ACK may still settle an uncertain local receipt.
         listener?.onAck(ack)
     }
     private fun registerPending(requestId: String, sessionId: String, abort: Boolean) {
-        val timeout = Runnable {
-            if (pending.remove(requestId) != null) listener?.onCommandUncertain(requestId, sessionId,
-                "Server did not acknowledge the ${if (abort) "stop request" else "command"} within ${ACK_TIMEOUT_MS / 1000} s")
-        }
-        pending[requestId] = Pending(requestId, sessionId, timeout, abort); main.postDelayed(timeout, ACK_TIMEOUT_MS)
+        pending.register(requestId, sessionId,
+            "Server did not acknowledge the ${if (abort) "stop request" else "command"} within ${ACK_TIMEOUT_MS / 1000} s")
     }
-    private fun failAllPending(reason: String) {
-        val all = pending.values.toList(); pending.clear()
-        for (entry in all) { main.removeCallbacks(entry.timeout); listener?.onCommandUncertain(entry.requestId, entry.sessionId, reason) }
-    }
+    private fun failAllPending(reason: String) = pending.failAll(reason)
     private fun scheduleReconnect(reason: String) {
         if (shuttingDown || authRejected) { if (!authRejected) setState(ConnectionState.DISCONNECTED, ""); return }
         val delay = BACKOFF_MS[minOf(attempt, BACKOFF_MS.lastIndex)]; attempt++
@@ -246,8 +246,8 @@ class PiClient(private val http: OkHttpClient, private val api: HttpApi) : WebSo
     }
     private fun notifyProtocolError(message: String?) { if (!message.isNullOrEmpty()) listener?.onProtocolError(message) }
     private fun runOnMain(action: Runnable) { if (Looper.myLooper() == Looper.getMainLooper()) action.run() else main.post(action) }
-    fun pendingRequestIds(): List<String> = ArrayList(pending.keys)
-    fun shutdown() { disconnect(); cacheIo.shutdown(); pending.values.forEach { main.removeCallbacks(it.timeout) }; pending.clear() }
+    @JvmOverloads fun pendingRequestIds(session: String? = null): List<String> = pending.ids(session).toList()
+    fun shutdown() { disconnect(); cacheIo.shutdown() }
     companion object {
         const val ACK_TIMEOUT_MS = 20_000L
         private val BACKOFF_MS = longArrayOf(1000, 2000, 4000, 8000, 15000, 30000)
