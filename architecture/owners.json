@@ -39,21 +39,42 @@
       "features/chat/ModelSettingsSession",
       "features/chat/QuickEffortSession",
       "features/chat/ModelSettingsScreen",
-      "features/chat/QuickEffortScreen"
+      "features/chat/QuickEffortScreen",
+      "features/chat/TranscriptionSession",
+      "features/chat/AttachmentSession",
+      "features/chat/DocumentSession",
+      "features/chat/DocumentScreen",
+      "features/chat/HistorySession",
+      "features/chat/ControlSession",
+      "features/chat/McpProjection",
+      "features/chat/ConfigurationSession",
+      "features/chat/ViewportSession",
+      "features/chat/QueueProjection",
+      "features/chat/ComposerSession",
+      "features/chat/TranscriptSession",
+      "features/chat/ConfigurationPanels",
+      "features/chat/TranscriptImageSession",
+      "features/chat/TranscriptImageScreen"
     ],
     "orchestration": [
       "OrchestrationActivity",
       "ui/OrchestrationEntry",
       "features/orchestration/OrchestrationSession",
       "features/orchestration/OrchestrationProjection",
-      "features/orchestration/OrchestrationScreen"
+      "features/orchestration/OrchestrationScreen",
+      "features/orchestration/ActiveWorkScreen"
     ],
     "voice": [
       "ui/DictationRecorder",
-      "ui/VoiceWaveform"
+      "ui/VoiceWaveform",
+      "features/voice/RecordingSession",
+      "features/voice/RecordingScreen"
     ],
     "updater": [
-      "ui/AppUpdates"
+      "ui/AppUpdates",
+      "ui/UpdateInstaller",
+      "features/updater/UpdateSession",
+      "features/updater/UpdateScreen"
     ],
     "ui-foundation": [
       "ui/BubbleColors",
@@ -96,6 +117,8 @@
     "features/orchestration/OrchestrationSession": "platform-free-state",
     "features/orchestration/OrchestrationProjection": "pure-projection",
     "features/orchestration/OrchestrationScreen": "presentation-only",
+    "features/orchestration/ActiveWorkScreen": "presentation-only",
+    "core/ActiveWork": "pure-projection",
     "features/chat/ChatHeader": "presentation-only",
     "features/chat/ChatWorkDock": "presentation-only",
     "features/chat/ChatScreen": "presentation-only",
@@ -110,7 +133,28 @@
     "features/chat/ModelSettingsSession": "platform-free-state",
     "features/chat/QuickEffortSession": "platform-free-state",
     "features/chat/ModelSettingsScreen": "presentation-only",
-    "features/chat/QuickEffortScreen": "presentation-only"
+    "features/chat/QuickEffortScreen": "presentation-only",
+    "features/updater/UpdateSession": "platform-free-state",
+    "features/updater/UpdateScreen": "presentation-only",
+    "features/voice/RecordingSession": "platform-free-state",
+    "features/voice/RecordingScreen": "presentation-only",
+    "core/PcmAudio": "pure-projection",
+    "features/chat/TranscriptionSession": "platform-free-state",
+    "features/chat/AttachmentSession": "platform-free-state",
+    "features/chat/DocumentSession": "platform-free-state",
+    "features/chat/DocumentScreen": "presentation-only",
+    "features/chat/HistorySession": "platform-free-state",
+    "features/chat/ControlSession": "platform-free-state",
+    "features/chat/McpProjection": "pure-projection",
+    "features/chat/ConfigurationSession": "platform-free-state",
+    "features/chat/ViewportSession": "platform-free-state",
+    "features/chat/QueueProjection": "pure-projection",
+    "features/chat/ComposerSession": "platform-free-state",
+    "features/chat/TranscriptSession": "platform-free-state",
+    "features/chat/ConfigurationPanels": "platform-free-state",
+    "core/TranscriptPresentation": "pure-projection",
+    "features/chat/TranscriptImageSession": "platform-free-state",
+    "features/chat/TranscriptImageScreen": "presentation-only"
   },
   "platformInteropDependencies": {
     "ui/ImageViewer": [
@@ -143,6 +187,7 @@
       "MessagesParser",
       "MessagesUpdate",
       "OrchestrationData",
+      "ActiveWork",
       "PayloadCodec",
       "ReleaseUpdate",
       "Session",
@@ -158,7 +203,8 @@
       "Workspace",
       "WorkTimeline",
       "TranscriptPresentation",
-      "AgentMetrics"
+      "AgentMetrics",
+      "PcmAudio"
     ],
     "net": [
       "ApiException",
@@ -168,7 +214,9 @@
       "HttpClients",
       "MediaLoader",
       "PiClient",
-      "PendingCommands"
+      "PendingCommands",
+      "ReleaseClient",
+      "SpeechTranscriber"
     ],
     "store": [
       "ConversationCache",
@@ -179,7 +227,11 @@
     ],
     "media": [
       "Attachment",
-      "ImagePreparer"
+      "ImagePreparer",
+      "PcmRecorder",
+      "AttachmentRead",
+      "AttachmentImporter",
+      "PickedAttachments"
     ]
   },
   "migrationRule": "Move ownership with code in the same change; Kotlin and Java implementations of one owned class must not coexist. Every platform class also has an explicit owner."

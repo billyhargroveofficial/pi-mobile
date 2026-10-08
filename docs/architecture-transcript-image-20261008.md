@@ -1,0 +1,34 @@
+# Миниатюры переписки — локальный слайс 8 октября 2026
+
+`PiTranscript` сохраняет публичные параметры, TranscriptActions и read-only inspection, но передаёт жизненный цикл изображения внутреннему `features/chat/TranscriptImageSession`. Владелец получает opaque pixels через injected load port; Android, MediaLoader, credentials и native zoom остаются в прежнем адаптере. Резервирование до вызова порта сохраняет single-flight даже при синхронном cache result и reentry. Публикуется только первый terminal result; ошибка setup становится видимой. Close запрещает дальнейшие результаты и освобождает ссылку этого binding, не recycling shared Bitmap и не отменяя загрузку другого подписчика.
+
+Binding принадлежит URL и экземпляру MediaLoader. Раньше DisposableEffect зависел от обоих, но bitmap/error сохранялись только по URL: при замене загрузчика оставались картинка или ошибка предыдущего источника до нового результата. Новый владелец создаётся по обоим ключам и начинает с пустого состояния. Ответ закрытого владельца не может изменить замену. Local attachment URLs по-прежнему не запускают remote load, local thumbnail имеет прежний приоритет.
+
+`TranscriptImageScreen` содержит только исходные размеры, aspect ratio, rounded corners и loading/error/missing-preview text. Он принимает Compose ImageBitmap и injected open callback. PiTranscript адаптирует Bitmap, переиспользует Compose wrapper при неизменном bitmap и открывает прежний ImageViewer. Same-origin/auth/cache/decode policy MediaLoader и fullscreen pinch/pan/double-tap не изменены. Presentation source guard дополнительно запрещает прямой native ImageViewer.
+
+Это ограниченная декомпозиция и исправление смены источника. Измерений heap, FPS, decode throughput или времени кадра нет; binding привязан к явно переданному загрузчику и URL, без новой политики автоматического обновления.
+
+## Проверки
+
+- `npm run quality`: **108 Node PASS**, ownership/import contracts и10 immutable UI baseline SHA256 PASS. Новый contract проверяет opaque state без Android/transport/storage/native viewer, направление state→screen и Compose-only pixels в presentation.
+- `testDebugUnitTest`: **608 JVM PASS**, без failures/errors/skips.11 новых image owner checks покрывают40 повторных starts, local/no remote, synchronous/reentrant cache, terminal/duplicate results, pending replacement, close/reference release и setup failures.
+- `assembleDebug`, `assembleDebugAndroidTest`, `lintDebug`: PASS; lint0 errors/149 прежних warnings/3 information. После усиления native fixture test APK/lint также PASS.
+- **41 final native PASS**: по11 в normal1080×2400/font1/light, narrow945×2100/font1.3/dark и narrow945×2100/font2/light:5 public transcript image,1 existing credential/cache/in-flight и5 arrivals. Ещё5 normal regressions: production attachment handoff/zoom, read-only agent conversation/history, tool settlement/manual disclosure, bounded inner-log scroll/disposal restoration и reader history anchor. Дополнительно по1 усиленному old-result-delivery check во всех трёх режимах. Все режимы density420, API35, offline emulator; HTTP изображения полностью перехвачены synthetic interceptor.
+- На прежнем APK отдельно **3 baseline native PASS**, с явной проверкой дефекта: после same-URL loader replacement остаются **16 815 выборочных red hardware pixels** и прежняя ошибка. Финальный APK во всех режимах даёт **0 старых red samples**, отображает Loading вместо старой ошибки и затем новую blue image; по1 HTTP request на loader.
+- Late-result fixture подтверждает фактическую доставку старого decoded red result через подписчика того же flight/cache, затем проверяет новую blue image на12 аппаратных кадрах. Старый результат её не заменяет; по1 request на loader. Замена URL также получает новую binding. Read-only remote image остаётся доступной для fullscreen inspection.
+- Local preview проверяет отсутствие remote requests, missing-preview feedback, прежние request/image indices, portrait aspect, actual double-tap zoom и close без recycling thumbnail. Existing production attachment test дополнительно проверяет retained local handoff, pinch-open/close и double-tap.
+- Reader anchors, stop/start, history prepend, независимое раскрытие инструментов и сохранение внутренней позиции после collapse/offscreen disposal PASS. Catch-up дал16 разных аппаратных кадров в каждом режиме и36/36/37 промежуточных viewport positions с завершением на измеренном хвосте; reduced-motion PASS.
+
+Просмотрены **36 финальных PNG**:27 main,6 regression и3 delivery confirmation. Три парных normal снимка loaded remote image, local portrait и local fullscreen дают **0 различий RGB ниже y100**; часы status bar исключены. Пропорции, границы пузыря, темы и крупный шрифт сохранены; старые red pixels и error в baseline также проверены визуально.
+
+Первый baseline run обнаружил нестабильный double-tap fixture: два UiDevice.click могли разойтись по времени и распознаться как одиночные. Fixture исправлен на существующий проверенный способ touch injection с явными timestamps; повторный baseline полностью прошёл. Его исходный failed log сохранён и не включён в итог. После полного final run усилена только проверка доставки late callback; три дополнительных bounded проверки выполнены последовательно. Production APK при этом не менялся.
+
+## Область и артефакты
+
+Production scope относительно начала слайса: изменён только `ui/PiTranscript.kt`, добавлены `features/chat/TranscriptImageSession.kt` и `TranscriptImageScreen.kt`. Все остальные main SHA256 прежние, удалённых файлов нет.130 Kotlin/0 Java,199 файлов main. Owner registry, source guard, capsule и entry docs обновлены. Все прежние dirty slices сохранены; `server/Caddyfile` сохранил SHA256 `b3e6a271cce6106c9c739a57f7e9ae386317edf271b3996c44af8aec370af71f`. `git diff --check` PASS.
+
+Версия0.6.007/code14, пакет `ru.billyhargrove.pimobile`, зависимости и сертификат прежние. APK SHA256 `3133e596dffacd36d43295383c1d5f9df40593c9483481f1b8f49bf3599444da`; certificate SHA256 `86c0c25a38f5c9231196fb5b647cda6ed8938eb8a0c392dcd00a31a74a6b52a4`. In-place upgrade baseline→final без clear/uninstall сохранил SHA256 всех4 private preferences.
+
+Созданные guest PNG удалены после сохранения host evidence, остальные файлы эмулятора сохранены. Сеть восстановлена:airplane0/Wi-Fi1/mobile-data0; экран1080×2400/density420/font1/light, animator scale1. Owned emulator завершился с exit0, `adb devices` пуст. Live Pi/Orca/gateway и paid prompts не использовались; физический телефон и реальные удалённые изображения не проверялись. Изменения локальные, нового релиза/публикации нет.
+
+Evidence: `/Users/billy/temp/pi-mobile-transcript-image-20261008/` — checklist, before/final/scope hashes, baseline APK/native pixels, full gates, последовательные native runs/delivery confirmations, upgrade preference hashes, APK identity, paired pixels,36 reviewed PNG и emulator restore/exit proof.

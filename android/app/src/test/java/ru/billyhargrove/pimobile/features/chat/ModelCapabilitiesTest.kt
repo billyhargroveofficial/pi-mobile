@@ -52,4 +52,22 @@ class ModelCapabilitiesTest {
         val catalog = ModelCapabilities.project(JSONObject().put("models", JSONArray().put(counted).put(counted)))
         assertEquals(1, catalog.models.size); assertEquals(2, counted.reads) // levels and tiers once
     }
+    @Test fun quickSelectionMatchesCatalogValidationFirstDuplicateAndRegistryBound() {
+        val config = JSONObject().put("model", "test/a").put("models", JSONArray().put(1)
+            .put(model("a").put("provider", JSONObject())).put(model("a")).put(model("a").put("name", "Duplicate")))
+        assertEquals(ModelCapabilities.project(config).selected, ModelCapabilities.find(config))
+        assertEquals("Model a", ModelCapabilities.find(config)!!.name)
+        assertNull(ModelCapabilities.find(JSONObject().put("model", "test/a")))
+        config.put("models", JSONArray((0..1000).map { model("$it") })).put("model", "test/1000")
+        assertNull(ModelCapabilities.find(config)); assertNotNull(ModelCapabilities.find(config, "test/999"))
+    }
+    @Test fun quickSelectionReadsCapabilitiesOnlyForTheSelectedModel() {
+        val values = (0 until 1000).map { index -> object : JSONObject() {
+            var reads = 0
+            override fun optJSONArray(key: String?): JSONArray? { reads++; return super.optJSONArray(key) }
+        }.apply { put("provider", "test"); put("id", "$index"); put("thinkingLevels", JSONArray().put("low")) } }
+        val config = JSONObject().put("model", "test/999").put("models", JSONArray(values))
+        assertEquals("test/999", ModelCapabilities.find(config)!!.key)
+        assertEquals(2, values.sumOf { it.reads }); assertEquals(0, values.first().reads)
+    }
 }

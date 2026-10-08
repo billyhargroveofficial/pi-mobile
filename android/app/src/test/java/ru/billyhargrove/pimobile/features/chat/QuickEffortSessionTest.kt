@@ -85,4 +85,20 @@ class QuickEffortSessionTest {
         val owner = QuickEffortSession(model(), "low", true, "standard", { throw IllegalStateException("synthetic") }, null)
         owner.preview("high", true); assertFalse(owner.pending); assertEquals("low", owner.selected); assertEquals("synthetic", owner.error)
     }
+    @Test fun equalExplicitReportsStillFenceSuccessForEachConfirmedField() {
+        val f = Fixture(model()); f.owner.preview("high", true)
+        f.owner.updateConfiguration(JSONObject().put("thinkingLevel", "low")); f.owner.completed(null)
+        f.owner.preview("high", true); assertEquals(listOf("high", "high"), f.levels)
+        f.owner.completed("rejected"); assertEquals("low", f.owner.selected)
+        f.owner.toggleTier(); f.owner.updateConfiguration(JSONObject().put("serviceTier", "standard")); f.owner.completed(null)
+        f.owner.toggleTier(); assertEquals(listOf("fast", "fast"), f.tiers)
+        f.owner.completed("rejected"); assertEquals("standard", f.owner.tier)
+    }
+    @Test fun metadataOnlyReportsNeverReadARegistryOrDropCurrentCapabilities() {
+        val config = object : JSONObject() {
+            override fun optJSONArray(key: String?): JSONArray? = throw AssertionError("No registry in a partial report")
+        }.put("thinkingLevel", "medium")
+        val f = Fixture(model()); f.owner.updateConfiguration(config)
+        assertEquals("medium", f.owner.selected); assertEquals(listOf("low", "medium", "high"), f.owner.model.levels)
+    }
 }

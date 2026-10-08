@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Synthetic picked documents, present only in the instrumentation APK. -->
+        <provider android:name="ru.billyhargrove.pimobile.AttachmentTestProvider"
+            android:authorities="ru.billyhargrove.pimobile.test.attachments" android:exported="true" />
+    </application>
+</manifest>

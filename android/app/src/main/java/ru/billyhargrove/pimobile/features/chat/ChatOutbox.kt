@@ -44,6 +44,10 @@ class ChatOutbox(
     private val drafts = linkedMapOf<String, Draft>()
     private var canonicalKeys = emptyList<String>()
     private val restoredQueue = initialReceipts.filter { it.queued() }.mapTo(hashSetOf()) { it.requestId() }
+    private var receiptRevision = 0L
+    private var persistedRevision = -1L
+    private var receiptSnapshot: List<ChatMessage>? = null
+    private var queueSnapshot: List<ChatMessage>? = null
 
     init {
         for (receipt in initialReceipts) {
@@ -88,8 +92,8 @@ class ChatOutbox(
             if (!payload.isFile && ImageGuard.isAllowedMimeType(payload.mimeType()))
                 ImageRef("local:$index", payload.mimeType()) else null
         }
-        receipts[requestId] = ChatMessage.local(requestId, text, images, ChatMessage.LocalState.SENDING)
-            .withQueue(if (queued) canonicalKeys else null)
+        updateReceipt(ChatMessage.local(requestId, text, images, ChatMessage.LocalState.SENDING)
+            .withQueue(if (queued) canonicalKeys else null))
         return SendResult(SendStatus.WRITTEN, requestId)
     }
 
@@ -98,9 +102,9 @@ class ChatOutbox(
         val receipt = receipts[ack.requestId()] ?: return AckResult(false)
         if (receipt.localState() != ChatMessage.LocalState.SENDING && receipt.localState() != ChatMessage.LocalState.UNCERTAIN)
             return AckResult(false)
-        receipts[ack.requestId()] = receipt.withLocalState(
+        updateReceipt(receipt.withLocalState(
             if (ack.ok()) ChatMessage.LocalState.ACCEPTED else ChatMessage.LocalState.FAILED
-        ).apply { if (!ack.ok()) withQueue(null) }
+        ).apply { if (!ack.ok()) withQueue(null) })
         return AckResult(true, if (ack.ok()) null else drafts[ack.requestId()]?.text)
     }
 
@@ -108,7 +112,7 @@ class ChatOutbox(
         if (eventSessionId != sessionId) return false
         val receipt = receipts[requestId] ?: return false
         if (receipt.localState() != ChatMessage.LocalState.SENDING) return false
-        receipts[requestId] = receipt.withLocalState(ChatMessage.LocalState.UNCERTAIN)
+        updateReceipt(receipt.withLocalState(ChatMessage.LocalState.UNCERTAIN))
         return true
     }
 
@@ -120,6 +124,7 @@ class ChatOutbox(
             return RestoreResult(RestoreStatus.UNKNOWN)
         val draft = drafts.remove(requestId)
         receipts.remove(requestId)
+        receiptsChanged()
         return if (draft == null) RestoreResult(RestoreStatus.REATTACH_REQUIRED, receipt.text())
         else RestoreResult(RestoreStatus.RESTORED, draft.text, draft)
     }
@@ -127,29 +132,38 @@ class ChatOutbox(
     fun thumbnail(requestId: String, sourceIndex: Int) =
         drafts[requestId]?.attachments?.getOrNull(sourceIndex)?.thumbnail()
 
-    fun localReceipts(): List<ChatMessage> = receipts.values.toList()
-    fun queuedMessages(): List<ChatMessage> = receipts.values.filter { it.queued() }
+    fun localReceipts(): List<ChatMessage> = receiptSnapshot ?: java.util.Collections.unmodifiableList(receipts.values.toList())
+        .also { receiptSnapshot = it }
+    fun queuedMessages(): List<ChatMessage> = queueSnapshot ?: java.util.Collections.unmodifiableList(localReceipts().filter { it.queued() })
+        .also { queueSnapshot = it }
     fun queueRestored(requestId: String) = requestId in restoredQueue
+
+    /** Reserve before the port: reentry cannot serialize the same revision twice. Failed saves remain retryable. */
+    fun persistReceipts(save: (List<ChatMessage>) -> Unit) {
+        val revision = receiptRevision
+        if (persistedRevision == revision) return
+        val previous = persistedRevision; persistedRevision = revision
+        try { save(localReceipts()) }
+        catch (cause: Throwable) { if (persistedRevision == revision) persistedRevision = previous; throw cause }
+    }
+
+    private fun updateReceipt(receipt: ChatMessage) {
+        if (receipts[receipt.requestId()] == receipt) return
+        receipts[receipt.requestId()] = receipt; receiptsChanged()
+    }
+    private fun receiptsChanged() { receiptRevision++; receiptSnapshot = null; queueSnapshot = null }
 
     /** Canonical echo wins. Keep pending ACK identity even if its bubble is hidden. */
     fun reconcile(canonical: List<ChatMessage>): List<ChatMessage> {
-        canonicalKeys = canonical.map { it.stableKey() }.takeLast(1500)
-        // Each NEW user echo consumes one queued request. An old identical prompt
-        // or a repeated snapshot cannot eat another entry. ACK is not consumption.
-        val consumed = hashSetOf<String>()
-        for ((id, receipt) in receipts) if (receipt.queued()) {
-            val baseline = receipt.queueBaseline().toCollection(linkedSetOf())
-            val echo = canonical.firstOrNull { it.role() == ChatMessage.Role.USER && it.stableKey() !in baseline &&
-                it.stableKey() !in consumed && TranscriptReconciler.sameContent(it, receipt) }
-            if (echo != null) { consumed.add(echo.stableKey()); receipts[id] = receipt.withLocalState(receipt.localState()).withQueue(null) }
-            else receipts[id] = receipt.withLocalState(receipt.localState()).withQueue((baseline + consumed).toList().takeLast(1500))
-        }
+        canonicalKeys = QueueProjection.tailKeys(canonical)
+        QueueProjection.reconcile(canonical, localReceipts()).forEach(::updateReceipt)
         val pendingQueue = queuedMessages().mapTo(hashSetOf()) { it.requestId() }
         val merged = TranscriptReconciler.merge(canonical, localReceipts().filter { it.requestId() !in pendingQueue })
         val visible = merged.filter { it.isLocal }.mapTo(hashSetOf()) { it.requestId() }.apply { addAll(pendingQueue) }
-        receipts.entries.removeAll { (id, receipt) ->
+        val removed = receipts.entries.removeAll { (id, receipt) ->
             receipt.localState() != ChatMessage.LocalState.SENDING && id !in visible
         }
+        if (removed) receiptsChanged()
         drafts.keys.retainAll(receipts.keys)
         return merged
     }

@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.ComposeView
@@ -21,11 +22,17 @@ import org.json.JSONObject
 import ru.billyhargrove.pimobile.core.*
 import ru.billyhargrove.pimobile.features.chat.ChatScreen
 import ru.billyhargrove.pimobile.features.chat.ChatSession
+import ru.billyhargrove.pimobile.features.chat.McpProjection
+import ru.billyhargrove.pimobile.features.chat.TranscriptionSession
+import ru.billyhargrove.pimobile.features.chat.AttachmentSession
+import ru.billyhargrove.pimobile.features.chat.DocumentSession
+import ru.billyhargrove.pimobile.features.chat.ConfigurationPanels
 import ru.billyhargrove.pimobile.media.Attachment
-import ru.billyhargrove.pimobile.media.ImagePreparer
+import ru.billyhargrove.pimobile.media.AttachmentImporter
+import ru.billyhargrove.pimobile.media.PickedAttachments
 import ru.billyhargrove.pimobile.net.AppExecutors
-import ru.billyhargrove.pimobile.net.AttachmentPreparer
 import ru.billyhargrove.pimobile.net.PiClient
+import ru.billyhargrove.pimobile.net.SpeechTranscriber
 import ru.billyhargrove.pimobile.store.PendingMessages
 import ru.billyhargrove.pimobile.ui.*
 
@@ -44,10 +51,17 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
     private lateinit var orchestration: OrchestrationEntry
     private var behavior by mutableStateOf(CommandBuilder.Behavior.FOLLOW_UP)
     private var dictation: DictationRecorder? = null
+    private lateinit var transcription: TranscriptionSession
+    private lateinit var attachments: AttachmentSession<Uri, Attachment>
     private var modelSheet: ModelSettingsSheet? = null
     private var effortPopup: EffortPopup? = null
     private var documentPreview: MarkdownPreview? = null
+    private var mcpDialog: AlertDialog? = null
     private var effortBounds = Rect()
+    private val configurationPanels = ConfigurationPanels({ !isFinishing && !isDestroyed }, {
+        ConfigurationPanels.State(chat.configuration, chat.connection == ConnectionState.CONNECTED,
+            chat.configurationPending, chat.readOnly, chat.canConfigureModel)
+    }, ::showQuickEffort, ::showModelSettings, ::notice)
     private val microphonePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         if (it) startDictation() else notice("Microphone permission is required for dictation")
     }
@@ -74,6 +88,24 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
         }
         chatState.value = ChatSession(session, intent.getStringExtra("session_title").orEmpty(),
             intent.getBooleanExtra("read_only", false), transport, pending.load(), pending::save, ::effect)
+        val owner = chat
+        val importer = AttachmentImporter(PickedAttachments(contentResolver)::prepare,
+            { AppExecutors.io().execute(it) }, { AppExecutors.main(it) })
+        attachments = AttachmentSession(owner.readOnly, object : AttachmentSession.Port<Uri, Attachment> {
+            override fun start(keys: List<Uri>, budget: Long, done: (AttachmentSession.Batch<Attachment>) -> Boolean): AttachmentSession.Control {
+                val job = importer.start(keys, budget) { done(AttachmentSession.Batch(it.values, it.error)) }
+                return object : AttachmentSession.Control { override fun cancel() = job.cancel() }
+            }
+        }, owner::beginPreparing, owner::prepared, { notice(getString(R.string.error_attach_limit)) },
+            { notice(getString(R.string.error_attach_failed, it)) }, { !isFinishing && !isDestroyed })
+        val speech = SpeechTranscriber(app.api())
+        transcription = TranscriptionSession(owner.readOnly, object : TranscriptionSession.Port {
+            override fun start(file: java.io.File, done: (Result<String>) -> Unit): TranscriptionSession.Control {
+                val job = speech.start(app.settings().baseUrl(), app.settings().token(), file, done)
+                return object : TranscriptionSession.Control { override fun cancel() = job.cancel() }
+            }
+            override fun discard(file: java.io.File) { file.delete() }
+        }, owner::transcriptionChanged, owner::dismissNotice, owner::insertDictation, ::notice, { !isFinishing && !isDestroyed })
         state?.getString("composer_text")?.let { text ->
             chat.composer = TextFieldValue(text, TextRange(state.getInt("composer_selection_start", text.length).coerceIn(0, text.length),
                 state.getInt("composer_selection_end", text.length).coerceIn(0, text.length)))
@@ -116,73 +148,80 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
         super.onStop()
     }
     override fun onDestroy() {
-        modelSheet?.dismiss(); effortPopup?.dismiss(); documentPreview?.dismiss()
+        chat.closeViewport()
+        chat.closeConfiguration()
+        chat.closeControls()
+        chat.closeHistory()
+        chat.closeDocuments()
+        chat.closeComposer()
+        attachments.close()
+        transcription.close()
+        configurationPanels.close()
+        documentPreview?.dismiss()
+        val mcp = mcpDialog; mcpDialog = null; mcp?.dismiss()
         super.onDestroy()
     }
 
     private fun quickEffort(bounds: Rect) {
         effortBounds = bounds
-        if (chat.configurationPending) return
-        val config = chat.configuration
-        if (config == null || chat.connection != ConnectionState.CONNECTED) { notice("Connect to Pi first"); return }
-        val models = config.optJSONArray("models")
-        val selected = (0 until (models?.length() ?: 0)).mapNotNull { models?.optJSONObject(it) }
-            .find { "${it.optString("provider")}/${it.optString("id")}" == config.optString("model") }
-        if (selected == null) { openModelSettings(); return }
-        effortPopup?.dismiss()
-        effortPopup = EffortPopup(root, { effortBounds }, selected, config.optString("thinkingLevel", "off"), !chat.readOnly,
-            ::openModelSettings, { chat.configure(null, null, it, null, false) }, config.optString("serviceTier", "standard"),
-            { chat.configure(null, null, null, it, false) })
+        configurationPanels.openQuick()
     }
-    private fun openModelSettings() {
-        if (chat.configurationPending) return
-        val config = chat.configuration
-        if (config?.optJSONArray("models") == null) { notice("Run /reload in Pi when idle to load models and effort levels."); return }
-        modelSheet?.dismiss()
+    private fun openModelSettings() = configurationPanels.openModels()
+    private fun showQuickEffort(value: ConfigurationPanels.Quick): ConfigurationPanels.QuickPanel {
+        val popup = EffortPopup(root, { effortBounds }, value.model, value.effort, value.editable,
+            ::openModelSettings, { chat.configure(null, null, it, null, false) }, value.tier,
+            { chat.configure(null, null, null, it, false) })
+        effortPopup = popup
+        return object : ConfigurationPanels.QuickPanel {
+            override val showing get() = popup.isShowing
+            override val pending get() = popup.awaitingResult
+            override fun completed(error: String?) = popup.completed(error)
+            override fun update(configuration: JSONObject) = popup.updateConfiguration(configuration)
+            override fun close() { if (effortPopup === popup) effortPopup = null; popup.dismiss() }
+        }
+    }
+    private fun showModelSettings(value: ConfigurationPanels.Models): ConfigurationPanels.Panel {
         (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(root.windowToken, 0)
-        modelSheet = ModelSettingsSheet(this, config, chat.canConfigureModel) { provider, model, effort, tier ->
+        val sheet = ModelSettingsSheet(this, value.catalog, value.editable) { provider, model, effort, tier ->
             chat.configure(provider, model, effort, tier, true)
         }
-        modelSheet?.show()
+        modelSheet = sheet; sheet.show()
+        return object : ConfigurationPanels.Panel {
+            override val showing get() = sheet.isShowing
+            override val pending get() = sheet.awaitingResult
+            override fun completed(error: String?) { if (error == null) sheet.applied() else sheet.failed(error) }
+            override fun close() { if (modelSheet === sheet) modelSheet = null; sheet.dismiss() }
+        }
     }
     private fun effect(value: ChatSession.Effect) {
         when (value) {
             is ChatSession.Effect.Notice -> Unit // The owner exposes persistent, dismissible inline feedback.
-            is ChatSession.Effect.ConfigurationResult -> {
-                val quick = effortPopup?.takeIf { it.isShowing && it.awaitingResult }
-                val model = modelSheet?.takeIf { it.isShowing && it.awaitingResult }
-                quick?.completed(value.error)
-                model?.let { if (value.error == null) it.applied() else it.failed(value.error) }
-                if (value.error != null && quick == null && model == null) notice(value.error)
-            }
+            is ChatSession.Effect.ConfigurationResult -> configurationPanels.completed(value.error)
             is ChatSession.Effect.Document -> {
-                documentPreview?.dismiss()
-                documentPreview = MarkdownPreview(this, value.path, value.text) { link ->
-                    val parent = value.path.substringBeforeLast('/', "").let { if (it.isEmpty()) "" else "$it/" }
-                    onDocument(if (link.startsWith('/') || link.contains(':')) link else parent + link)
+                if (isFinishing || isDestroyed) return
+                if (documentPreview?.let { it.isShowing && it.matches(value.path, value.text) } == true) return
+                val document = DocumentSession.Document(value.path, value.text)
+                val previous = documentPreview
+                val next = MarkdownPreview(this, value.path, value.text) { link -> onDocument(document.resolve(link)) }
+                next.onClosed {
+                    if (documentPreview === next) { documentPreview = null; chat.cancelDocument() }
                 }
-                documentPreview?.show()
+                documentPreview = next; previous?.dismiss(); next.show()
             }
             is ChatSession.Effect.Mcp -> {
-                val servers = value.data.optJSONArray("servers")
-                val text = buildString {
-                    for (index in 0 until (servers?.length() ?: 0)) {
-                        val server = servers?.optJSONObject(index) ?: continue
-                        val label = when (server.optString("status")) {
-                            "connected" -> "connected"; "cached" -> "cached, disconnected"; "not-connected" -> "not connected"
-                            "needs-auth" -> "sign-in required"; "disabled" -> "disabled"; "blocked" -> "blocked"; else -> "error"
-                        }
-                        append("${server.optString("name")} — $label · ${server.optInt("toolCount")} tools\n\n")
-                    }
-                    if (isEmpty()) append("No MCP servers in this Pi session.")
-                    val observed = value.data.optLong("observedAt")
-                    if (observed > 0) append("Status reported by Pi: ${android.text.format.DateFormat.getTimeFormat(this@ChatActivity).format(java.util.Date(observed))}")
-                }
-                MaterialAlertDialogBuilder(this).setTitle("Session MCP servers").setMessage(text).setPositiveButton("Done", null).show()
+                if (isFinishing || isDestroyed) return
+                val status = McpProjection.project(value.data)
+                val text = status.text + if (status.observedAt > 0)
+                    "Status reported by Pi: ${android.text.format.DateFormat.getTimeFormat(this).format(java.util.Date(status.observedAt))}" else ""
+                val previous = mcpDialog
+                val next = MaterialAlertDialogBuilder(this).setTitle("Session MCP servers").setMessage(text).setPositiveButton("Done", null).create()
+                next.setOnDismissListener { if (mcpDialog === next) mcpDialog = null }
+                mcpDialog = next; previous?.dismiss(); next.show()
             }
         }
     }
     fun onDocument(raw: String) {
+        if (isFinishing || isDestroyed) return
         val uri = Uri.parse(raw)
         val scheme = uri.scheme
         if (scheme.equals("http", true) || scheme.equals("https", true)) {
@@ -195,27 +234,8 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
         chat.document(path)
     }
     private fun picked(uris: List<Uri>) {
-        if (uris.isEmpty() || chat.readOnly || chat.preparing) return
-        val free = ImageGuard.MAX_IMAGES - chat.attachments.size
-        if (uris.size > free) notice(getString(R.string.error_attach_limit))
-        if (free <= 0 || !chat.beginPreparing()) return
-        val owner = chat
-        val selected = uris.take(free)
-        val remaining = ImageGuard.remainingBytes(owner.attachments.map { it.payload() })
-        AppExecutors.io().execute {
-            val staged = mutableListOf<Attachment>()
-            var failure: String? = null
-            var budget = remaining
-            for (uri in selected) try {
-                val payload = AttachmentPreparer.prepare(contentResolver, uri, budget)
-                budget -= payload.size()
-                staged.add(Attachment(payload, if (payload.isFile) null else ImagePreparer.thumbnail(payload.bytes(), 320),
-                    ImagePreparer.displayName(contentResolver, uri)))
-            } catch (error: Exception) { failure = error.message ?: "could not read file"; break }
-            AppExecutors.main {
-                if (!isDestroyed) { owner.prepared(staged); failure?.let { notice(getString(R.string.error_attach_failed, it)) } }
-            }
-        }
+        if (chat.preparing) return
+        attachments.pick(uris, chat.attachments.size, ImageGuard.remainingBytes(chat.attachments.map { it.payload() }))
     }
     private fun requestDictation() {
         if (chat.readOnly) return
@@ -224,22 +244,9 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
             microphonePermission.launch(Manifest.permission.RECORD_AUDIO) else startDictation()
     }
     private fun startDictation() {
-        if (isFinishing || isDestroyed || chat.readOnly) return
-        val owner = chat
+        if (isFinishing || isDestroyed || chat.readOnly || chat.transcribing) return
         dictation = DictationRecorder(this, { file ->
-            dictation = null; owner.dismissNotice(); owner.transcriptionChanged(true)
-            val url = app.settings().baseUrl(); val token = app.settings().token()
-            AppExecutors.io().execute {
-                var text: String? = null; var failure: String? = null
-                try { text = app.api().transcribe(url, token, file) } catch (error: Exception) { failure = error.message }
-                finally { file.delete() }
-                AppExecutors.main {
-                    owner.transcriptionChanged(false)
-                    if (!isFinishing && !isDestroyed) {
-                        when { failure != null -> notice(failure!!); text.isNullOrBlank() -> notice("No speech detected"); else -> owner.insertDictation(text!!) }
-                    }
-                }
-            }
+            dictation = null; transcription.start(file)
         }, ::notice)
     }
     private fun notice(text: String) { chat.showNotice(text) }
@@ -250,7 +257,7 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
     override fun onAck(ack: Ack) = chat.onAck(ack)
     override fun onConfiguration(id: String, value: JSONObject) {
         chat.onConfiguration(id, value)
-        if (id == chat.sessionId) effortPopup?.updateConfiguration(value)
+        if (id == chat.sessionId) configurationPanels.update(value)
     }
     override fun onTimelineMeta(frame: JSONObject) = chat.onTimelineMeta(frame)
     override fun onData(request: String, id: String, data: JSONObject) = chat.onData(request, id, data)

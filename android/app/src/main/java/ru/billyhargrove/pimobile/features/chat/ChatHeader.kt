@@ -24,7 +24,7 @@ import ru.billyhargrove.pimobile.ui.*
 
 /** Header consumes session state; navigation remains a platform callback. */
 @Composable
-internal fun ChatHeader(chat: ChatSession, orchestration: org.json.JSONObject?, onBack: () -> Unit,
+internal fun ChatHeader(chat: ChatSession, orchestration: ActiveWork.Snapshot, onBack: () -> Unit,
     onOrchestration: (String, String, String) -> Unit, prefix: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     Column(modifier.fillMaxWidth().statusBarsPadding().padding(top = 6.dp)) {
@@ -45,7 +45,7 @@ internal fun ChatHeader(chat: ChatSession, orchestration: org.json.JSONObject?, 
             }
             if (chat.status == SessionStatus.RUNNING && !chat.readOnly) PiIconButton(R.drawable.ic_stop, "Stop", prefix + "stopButton",
                 enabled = chat.canSend, tint = colorResource(R.color.danger), soft = true, onClick = chat::abort)
-            else if (orchestration?.let { OrchestrationData.agents(it, null).isNotEmpty() || OrchestrationData.objects(it.optJSONArray("workflows")).isNotEmpty() } == true)
+            else if (orchestration.hasHistory)
                 PiIconButton(R.drawable.ic_queue, "Activity history", prefix + "orchestrationHistory", onClick = { onOrchestration("", "", "Activity") })
         }
         if (chat.notice.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 8.dp)

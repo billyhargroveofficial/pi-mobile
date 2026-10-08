@@ -17,8 +17,16 @@ object ImagePreparer {
     @JvmStatic @Throws(IOException::class)
     fun prepare(resolver: ContentResolver?, uri: Uri?, budgetBytes: Long): ImagePayload {
         if (resolver == null || uri == null) throw IOException("Файл недоступен")
-        val budget = budgetBytes.coerceIn(64 * 1024L, ImageGuard.MAX_TOTAL_BYTES)
-        val raw = readUpTo(resolver, uri, ImageGuard.MAX_TOTAL_BYTES + 1)
+        if (budgetBytes <= 0) throw IOException("Attachments must total no more than 10 MB")
+        val reader = AttachmentRead()
+        return prepare(reader.read(ImageGuard.MAX_TOTAL_BYTES + 1, "Файл больше 10 МБ") {
+            resolver.openInputStream(uri)
+        }, budgetBytes)
+    }
+    internal fun prepare(raw: ByteArray, budgetBytes: Long, check: () -> Unit = {}): ImagePayload {
+        if (budgetBytes <= 0) throw IOException("Attachments must total no more than 10 MB")
+        val budget = budgetBytes.coerceAtMost(ImageGuard.MAX_TOTAL_BYTES)
+        check()
         if (raw.isEmpty()) throw IOException("Пустой файл")
         val mime = ImageMimeType.detect(raw)
         if (mime.isEmpty()) throw IOException("Формат не поддерживается: нужен PNG, JPEG или WebP")
@@ -27,6 +35,7 @@ object ImagePreparer {
         val format = if (ImageMimeType.compressFormat(mime) == "PNG") Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
         try {
             for (edge in intArrayOf(2048, 1024, 512)) {
+                check()
                 val largest = maxOf(source.width, source.height)
                 val scaled = if (largest <= edge) source else {
                     val ratio = edge.toFloat() / largest
@@ -35,9 +44,11 @@ object ImagePreparer {
                 }
                 try {
                     for (quality in if (format == Bitmap.CompressFormat.PNG) intArrayOf(100) else intArrayOf(85, 70, 55, 40)) {
+                        check()
                         val output = ByteArrayOutputStream()
                         if (!scaled.compress(format, quality, output)) throw IOException("Не удалось кодировать изображение")
                         val bytes = output.toByteArray()
+                        check()
                         if (bytes.size <= budget) return ImagePayload(bytes, ImageMimeType.detect(bytes))
                     }
                 } finally { if (scaled !== source) scaled.recycle() }
@@ -67,14 +78,4 @@ object ImagePreparer {
         return try { BitmapFactory.decodeByteArray(raw, 0, raw.size, BitmapFactory.Options().apply { inSampleSize = sample }) }
         catch (_: OutOfMemoryError) { null }
     }
-    private fun readUpTo(resolver: ContentResolver, uri: Uri, cap: Long): ByteArray =
-        resolver.openInputStream(uri)?.use { input ->
-            val output = ByteArrayOutputStream(); val buffer = ByteArray(16 * 1024); var total = 0L
-            while (true) {
-                val count = input.read(buffer); if (count == -1) break
-                total += count; if (total > cap) throw IOException("Файл больше 10 МБ")
-                output.write(buffer, 0, count)
-            }
-            output.toByteArray()
-        } ?: throw IOException("Не удалось открыть файл")
 }

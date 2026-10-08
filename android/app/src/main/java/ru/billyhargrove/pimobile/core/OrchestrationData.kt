@@ -28,7 +28,9 @@ object OrchestrationData {
     }
     @JvmStatic fun shortModel(model: String) = model.substringAfterLast('/')
     @JvmStatic fun duration(agent: JSONObject, now: Long): String {
-        val start = agent.optLong("startedAt"); val end = agent.optLong("finishedAt")
+        return duration(agent.optLong("startedAt"), agent.optLong("finishedAt"), now)
+    }
+    @JvmStatic fun duration(start: Long, end: Long, now: Long): String {
         if (start <= 0) return ""
         val seconds = (((if (end > 0) end else now) - start) / 1000).coerceAtLeast(0)
         return when {

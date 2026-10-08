@@ -23,12 +23,12 @@ import ru.billyhargrove.pimobile.ui.*
 
 /** Activity, queued receipts and skills are presentation of existing owners; no IO or sends. */
 @Composable
-internal fun ChatWorkDock(chat: ChatSession, orchestration: org.json.JSONObject?,
+internal fun ChatWorkDock(chat: ChatSession, orchestration: ActiveWork.Snapshot,
     onOrchestration: (String, String, String) -> Unit, keyboardVisible: Boolean, prefix: String,
     modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth()) {
-        orchestration?.let { ActiveOrchestration(it, onOrchestration, compact = keyboardVisible) }
-        val activeDock = orchestration?.let { OrchestrationData.activeWorkflows(it).isNotEmpty() || OrchestrationData.activeStandalone(it).isNotEmpty() } == true
+        ActiveOrchestration(orchestration, onOrchestration, compact = keyboardVisible)
+        val activeDock = orchestration.active
         if (!keyboardVisible || (!activeDock && chat.queue.isEmpty())) Working(chat.metadata, Modifier, prefix)
         MessageQueue(chat, prefix, compact = keyboardVisible)
         Skills(chat, prefix)

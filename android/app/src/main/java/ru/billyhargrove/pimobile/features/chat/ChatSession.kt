@@ -45,115 +45,115 @@ class ChatSession(
     var status by mutableStateOf(SessionStatus.UNKNOWN); private set
     var configuration by mutableStateOf<JSONObject?>(null); private set
     var metadata by mutableStateOf(JSONObject()); private set
-    var items by mutableStateOf<List<TranscriptPresentation.Item>>(emptyList()); private set
+    val items get() = transcript.items
     var queue by mutableStateOf<List<ChatMessage>>(emptyList()); private set
     var notice by mutableStateOf(""); private set
-    var composer by mutableStateOf(TextFieldValue())
-    var attachments by mutableStateOf<List<Attachment>>(emptyList()); private set
-    var preparing by mutableStateOf(false); private set
-    var transcribing by mutableStateOf(false); private set
+    private val draft = ComposerSession<TextFieldValue, Attachment>(readOnly, object : ComposerSession.Editor<TextFieldValue> {
+        override fun text(value: TextFieldValue) = value.text
+        override fun selectionStart(value: TextFieldValue) = value.selection.start
+        override fun create(text: String, caret: Int) = TextFieldValue(text, TextRange(caret))
+    })
+    var composer: TextFieldValue
+        get() = draft.value
+        set(value) { draft.value = value }
+    val attachments get() = draft.attachments
+    val preparing get() = draft.preparing
+    val transcribing get() = draft.transcribing
     var loading by mutableStateOf(true); private set
     var cached by mutableStateOf(false); private set
     var truncated by mutableStateOf(false); private set
     var historyLoading by mutableStateOf(false); private set
-    var followTail by mutableStateOf(true); private set
-    var tailRevision by mutableIntStateOf(0); private set
-    var smoothTail by mutableStateOf(false); private set
-    var arrivalRevision by mutableIntStateOf(0); private set
-    var arrivingKeys by mutableStateOf<Set<String>>(emptySet()); private set
-    var newActivity by mutableStateOf(false); private set
+    val followTail get() = viewport.followTail
+    val tailRevision get() = viewport.tailRevision
+    val smoothTail get() = viewport.smoothTail
+    val arrivalRevision get() = viewport.arrivalRevision
+    val arrivingKeys get() = viewport.arrivingKeys
+    val newActivity get() = viewport.newActivity
     var restoreViewport by mutableStateOf<Viewport?>(null); private set
     var configurationPending by mutableStateOf(false); private set
-    private val store = TranscriptStore()
-    private val presentation = TranscriptPresentation()
     private val outbox = ChatOutbox(sessionId, readOnly, transport::prompt, initialReceipts)
-    private var firstRendered = false
-    private var viewportLoaded = false
-    private var catchingUp = false
+    private val viewport = ViewportSession({ transport.viewport(sessionId)?.let {
+        ViewportSession.Position(it.optString("anchor"), it.optInt("offset"), it.optBoolean("follow"))
+    } }, { transport.saveViewport(sessionId, it.key, it.offset, it.follow) }, {
+        restoreViewport = it?.let { position -> Viewport(position.key, position.offset, position.follow) }
+    })
+    private val transcript = TranscriptSession(outbox::reconcile, {
+        outbox.persistReceipts(persist); queue = outbox.queuedMessages()
+    }, viewport::published, viewport::rendered)
     private var resetPresentation = false
-    private var historyRequest: String? = null
-    private var historyEpoch = 0L
-    private var historyBefore = ""
-    private var hasMore = false
-    private var documentRequest: String? = null
-    private var controlRequest: String? = null
-    private var controlDraft = ""
-    private var controlKind = ""
-    private var configurationRequest: String? = null
-    private val abortRequests = mutableSetOf<String>()
-    val canSend get() = !readOnly && connection == ConnectionState.CONNECTED && status != SessionStatus.OFFLINE && !preparing
-    val voice get() = composer.text.isBlank() && attachments.isEmpty()
-    val canConfigureModel get() = !readOnly && connection == ConnectionState.CONNECTED && status == SessionStatus.IDLE && !configurationPending
+    private val history = HistorySession(
+        { before -> transport.read(sessionId, "history", JSONObject().put("before", before).put("limit", 40)) },
+        { transcript.hasUserContext }, { historyLoading = it }, ::notice)
+    private val documents = DocumentSession(
+        { path -> transport.read(sessionId, "document", JSONObject().put("path", path)) },
+        { document -> effect(Effect.Document(document.path, document.text)) }, ::notice)
+    private val controls = ControlSession(readOnly, ::capability, { command ->
+        when (command) {
+            ControlSession.Command.Mcp -> transport.read(sessionId, "mcp", JSONObject())
+            is ControlSession.Command.Rename -> transport.read(sessionId, "name", JSONObject().put("name", command.name))
+        }
+    }, { transport.abort(sessionId) }, draft::clearMatchingText, ::notice)
+    private val configurationChanges = ConfigurationSession(readOnly, { status == SessionStatus.IDLE }, { change ->
+        transport.configure(sessionId, change.provider, change.model, change.effort, change.tier)
+    }, { configurationPending = it }, { effect(Effect.ConfigurationResult(it)) }, ::notice)
+    val canSend get() = draft.editable && connection == ConnectionState.CONNECTED && status != SessionStatus.OFFLINE && !preparing
+    val voice get() = draft.voice
+    val canConfigureModel get() = connection == ConnectionState.CONNECTED && status == SessionStatus.IDLE && configurationChanges.canSubmit
 
     init { render() }
 
     fun start() {
-        catchingUp = firstRendered
+        viewport.start()
         connection = transport.connection()
         // The Activity detaches its listener while stopped. ACKs/timeouts can finish
         // there; recover missing tickets as unknown, never as accepted or replayed.
         transport.pendingRequests(sessionId)?.let { live ->
-            val owned = listOfNotNull(historyRequest, documentRequest, controlRequest, configurationRequest) +
-                abortRequests.toList() + outbox.localReceipts().filter { it.localState() == ChatMessage.LocalState.SENDING }.map { it.requestId() }
+            documents.reconcile(live)
+            history.reconcile(live)
+            controls.reconcile(live)
+            configurationChanges.reconcile(live)
+            val owned = outbox.localReceipts().filter { it.localState() == ChatMessage.LocalState.SENDING }.map { it.requestId() }
             owned.filter { it !in live }.forEach { onCommandUncertain(it, sessionId, "The result arrived while this screen was inactive") }
         }
         configuration = transport.configuration(sessionId)
         transport.subscribe(sessionId)
     }
 
-    fun saveViewport(key: String, offset: Int) {
-        if (key.isNotEmpty()) transport.saveViewport(sessionId, key, offset, followTail)
-    }
-    fun viewportRestored() {
-        restoreViewport = null
-        if (followTail) { smoothTail = true; tailRevision++ }
-    }
-    fun arrivalsShown(revision: Int) { if (revision == arrivalRevision) arrivingKeys = emptySet() }
-    fun readerDragged() { followTail = false; restoreViewport = null }
-    fun readerSettled(atBottom: Boolean) { followTail = atBottom; if (atBottom) newActivity = false }
-    fun toggle(group: String) { presentation.toggle(group); items = presentation.items() }
+    fun saveViewport(key: String, offset: Int) = viewport.save(key, offset)
+    fun viewportRestored() = viewport.viewportRestored()
+    fun arrivalsShown(revision: Int) = viewport.arrivalsShown(revision)
+    fun readerDragged() = viewport.readerDragged()
+    fun readerSettled(atBottom: Boolean) = viewport.readerSettled(atBottom)
+    fun closeViewport() = viewport.close()
+    fun toggle(group: String) = transcript.toggle(group)
     fun thumbnail(request: String, index: Int) = outbox.thumbnail(request, index)
     fun queueRestored(request: String) = outbox.queueRestored(request)
-    fun transcriptionChanged(value: Boolean) { transcribing = value }
+    fun transcriptionChanged(value: Boolean) = draft.transcriptionChanged(value)
     fun showNotice(text: String) { notice = text }
     fun dismissNotice() { notice = "" }
-    fun beginPreparing(): Boolean {
-        if (readOnly || preparing) return false
-        preparing = true
-        return true
-    }
-    fun prepared(values: List<Attachment>) {
-        preparing = false
-        if (!readOnly) attachments = attachments + values
-    }
-    fun removeAttachment(index: Int) { if (!readOnly && !preparing) attachments = attachments.filterIndexed { i, _ -> i != index } }
-    fun insertDictation(text: String) {
-        if (readOnly || text.isBlank()) return
-        val at = composer.selection.start.coerceIn(0, composer.text.length)
-        val inserted = (if (at > 0) " " else "") + text
-        composer = TextFieldValue(composer.text.substring(0, at) + inserted + composer.text.substring(at), TextRange(at + inserted.length))
-    }
-    fun selectSkill(name: String) { if (!readOnly) setText("\$$name ") }
+    fun beginPreparing() = draft.beginPreparing()
+    fun prepared(values: List<Attachment>) = draft.prepared(values)
+    fun removeAttachment(index: Int) = draft.removeAttachment(index)
+    fun insertDictation(text: String) = draft.insertDictation(text)
+    fun selectSkill(name: String) = draft.selectSkill(name)
+    fun closeComposer() = draft.close()
 
     fun send(behavior: CommandBuilder.Behavior): Boolean {
-        if (readOnly) return false
+        if (!draft.editable) return false
         if (preparing) { notice("Wait for attachments to finish preparing"); return false }
-        val text = composer.text
-        if (handleControl(text.trim())) return false
+        val submitted = draft.submission() ?: return false
+        val text = submitted.text
+        if (controls.handle(text, submitted.attachments.isNotEmpty())) return false
         if (text.startsWith("$") && !capability("skills")) { notice("Update the Pi bridge when idle to use skills"); return false }
-        return when (outbox.send(text, attachments, behavior, status == SessionStatus.RUNNING).status) {
-            ChatOutbox.SendStatus.WRITTEN -> { composer = TextFieldValue(); attachments = emptyList(); render(); tail(); true }
+        return when (outbox.send(text, submitted.attachments, behavior, status == SessionStatus.RUNNING).status) {
+            ChatOutbox.SendStatus.WRITTEN -> { draft.sent(submitted); render(); tail(); true }
             ChatOutbox.SendStatus.EMPTY -> { notice("Write a message or attach a file"); false }
             else -> { notice("Not connected to this Pi session"); false }
         }
     }
 
-    fun abort() {
-        if (readOnly) return
-        val request = transport.abort(sessionId)
-        if (request == null) notice("Stop is unavailable while Pi is disconnected")
-        else { abortRequests.add(request); notice("Stop requested") }
-    }
+    fun abort() = controls.abort()
+    fun closeControls() = controls.close()
 
     fun retry(message: ChatMessage) {
         when (outbox.retry(message.requestId()).status) {
@@ -165,12 +165,12 @@ class ChatSession(
     }
 
     fun restore(message: ChatMessage) {
-        val result = outbox.restore(message.requestId(), composer.text.isNotEmpty() || attachments.isNotEmpty() || preparing)
+        if (!draft.editable) return
+        val result = outbox.restore(message.requestId(), draft.occupied)
         when (result.status) {
             ChatOutbox.RestoreStatus.COMPOSER_OCCUPIED -> notice("Clear the current draft first")
             ChatOutbox.RestoreStatus.RESTORED, ChatOutbox.RestoreStatus.REATTACH_REQUIRED -> {
-                setText(result.text)
-                attachments = result.draft?.attachments.orEmpty()
+                draft.restore(result.text, result.draft?.attachments.orEmpty())
                 render()
                 if (result.status == ChatOutbox.RestoreStatus.REATTACH_REQUIRED) notice("Check the chat before retrying. Select attachments again.")
             }
@@ -178,52 +178,22 @@ class ChatSession(
         }
     }
 
-    fun configure(provider: String?, model: String?, effort: String?, tier: String?, modelChange: Boolean): Boolean {
-        if (readOnly) return false
-        if (configurationPending) { notice("Waiting for the previous change to be confirmed"); return false }
-        if (modelChange && status != SessionStatus.IDLE) { effect(Effect.ConfigurationResult("Wait for the current task to finish")); return false }
-        configurationRequest = transport.configure(sessionId, provider, model, effort, tier)
-        configurationPending = configurationRequest != null
-        if (!configurationPending) effect(Effect.ConfigurationResult("Pi is disconnected. Changes not sent."))
-        return configurationPending
-    }
+    fun configure(provider: String?, model: String?, effort: String?, tier: String?, modelChange: Boolean) =
+        configurationChanges.apply(ConfigurationSession.Change(provider, model, effort, tier), modelChange)
+    fun closeConfiguration() = configurationChanges.close()
 
     /** Paths are validated in the platform shell and confined again by the gateway. Read-only inspection may read. */
     fun document(path: String) {
-        if (documentRequest != null) { notice("A file is already loading"); return }
-        documentRequest = transport.read(sessionId, "document", JSONObject().put("path", path))
-        if (documentRequest == null) notice("Pi must be connected to preview files")
+        documents.open(path)
     }
+    fun cancelDocument() = documents.cancel()
+    fun closeDocuments() = documents.close()
 
-    fun loadOlder() {
-        if (cached || !hasMore || historyRequest != null || historyBefore.isEmpty()) return
-        historyRequest = transport.read(sessionId, "history", JSONObject().put("before", historyBefore).put("limit", 40))
-        historyLoading = historyRequest != null
-        if (!historyLoading) notice("Pi must be connected to load history")
-    }
-
-    private fun ensureUserContext() {
-        if (!cached && hasMore && store.transcript().none { it.role() == ChatMessage.Role.USER }) loadOlder()
-    }
+    fun loadOlder() { history.loadOlder() }
+    fun closeHistory() = history.close()
     private fun capability(name: String): Boolean {
         val caps = configuration?.optJSONArray("capabilities") ?: return false
         return (0 until caps.length()).any { caps.optString(it) == name }
-    }
-    private fun handleControl(text: String): Boolean {
-        val kind = when { text == "/mcp" -> "mcp"; text == "/name" || text.startsWith("/name ") -> "name"; else -> return false }
-        if (attachments.isNotEmpty()) { notice("This command does not send attachments. Remove them first"); return true }
-        if (controlRequest != null) { notice("The previous command is still pending"); return true }
-        if (!capability(kind)) { notice("Update the Pi bridge after the current task finishes"); return true }
-        val args = JSONObject()
-        if (kind == "name") {
-            val name = text.substring(5).trim()
-            if (name.isEmpty()) { notice("Use /name New name"); return true }
-            args.put("name", name)
-        }
-        controlRequest = transport.read(sessionId, kind, args)
-        if (controlRequest == null) notice("Not connected to this Pi session")
-        else { controlKind = kind; controlDraft = text }
-        return true
     }
 
     override fun onConnectionState(state: ConnectionState, detail: String) { connection = state }
@@ -231,58 +201,51 @@ class ChatSession(
         val session = catalog.findSession(sessionId) ?: return
         status = session.status()
         if (session.displayTitle().isNotEmpty()) title = session.displayTitle()
-        presentation.sessionStatus(status); items = presentation.items()
+        transcript.status(status)
     }
     override fun onConfiguration(id: String, value: JSONObject) { if (id == sessionId) configuration = value }
     override fun onTimelineMeta(frame: JSONObject) {
         if (frame.optString("sessionId") != sessionId) return
         cached = frame.optBoolean("cached")
+        history.cached = cached
         val snapshot = frame.optString("type") == "snapshot"
-        if (snapshot && historyEpoch != 0L && historyEpoch != frame.optLong("epoch")) resetPresentation = true
+        if (snapshot && history.epoch != 0L && history.epoch != frame.optLong("epoch")) resetPresentation = true
         metadata = frame
-        presentation.metadata(frame); publishItems(catchingUp)
+        transcript.metadata(frame, viewport.catchingUp)
         if (snapshot) {
-            historyEpoch = frame.optLong("epoch")
-            historyRequest = null; historyLoading = false
-            readHistory(frame)
+            history.snapshot(frame.optLong("epoch"), historyCursor(frame), cached)
         }
     }
     override fun onSnapshot(snapshot: Snapshot) {
         if (snapshot.sessionId() != sessionId) return
-        if (resetPresentation) {
-            presentation.reset(); presentation.metadata(metadata); resetPresentation = false
-        }
-        val viewport = if (cached && !viewportLoaded) transport.viewport(sessionId) else null
-        if (cached) viewportLoaded = true
-        if (viewport != null) {
-            firstRendered = true; followTail = false
-            restoreViewport = Viewport(viewport.optString("anchor"), viewport.optInt("offset"), viewport.optBoolean("follow"))
-        }
+        val resetMetadata = metadata.takeIf { resetPresentation }
+        resetPresentation = false
+        if (cached) viewport.restoreCached()
         loading = false; status = snapshot.status(); truncated = snapshot.truncated()
-        presentation.sessionStatus(status)
-        render(store.replaceAll(snapshot.messages()), catchingUp, !cached)
-        catchingUp = cached
-        ensureUserContext()
+        transcript.snapshot(snapshot.messages(), status, resetMetadata, viewport.catchingUp, !cached)
+        viewport.snapshotRendered(cached)
+        history.ensureUserContext()
     }
     override fun onMessages(update: MessagesUpdate) {
         if (update.sessionId() != sessionId) return
         if (update.hasStatus()) status = update.status()
         if (update.hasTruncated()) truncated = update.truncated()
-        loading = false; presentation.sessionStatus(status)
-        render(store.apply(update.messages(), update.removedIds()), catchingUp)
-        catchingUp = false
-        ensureUserContext()
+        loading = false
+        transcript.messages(update.messages(), update.removedIds(), status, viewport.catchingUp)
+        viewport.messagesRendered()
+        history.ensureUserContext()
     }
     override fun onData(request: String, id: String, data: JSONObject) {
         if (id != sessionId) return
         when {
-            request == controlRequest && data.optString("type") == "mcp" -> effect(Effect.Mcp(data))
-            request == documentRequest && data.optString("type") == "document" -> effect(Effect.Document(data.optString("path"), data.optString("text")))
-            request == historyRequest && data.optString("type") == "history" -> {
-                if (data.optLong("epoch") != historyEpoch) { historyRequest = null; historyLoading = false; return }
+            data.optString("type") == "mcp" && controls.receivedMcp(request) -> effect(Effect.Mcp(data))
+            documents.owns(request) && data.optString("type") == "document" -> documents.received(request, data.optString("path"), data.optString("text"))
+            history.owns(request) && data.optString("type") == "history" -> {
+                val messages = data.optJSONArray("messages")
+                if (messages == null) { history.invalid(request); return }
+                if (!history.received(request, data.optLong("epoch"), historyCursor(data))) return
                 // Compose's stable item keys retain the reader's pixel anchor during prepend.
-                store.prepend(SnapshotParser.parseMessages(data.optJSONArray("messages")))
-                presentation.metadata(data); render(); readHistory(data)
+                transcript.prepend(SnapshotParser.parseMessages(messages), data)
             }
         }
     }
@@ -290,27 +253,16 @@ class ChatSession(
         if (ack.sessionId() != sessionId) return
         val request = ack.requestId()
         when {
-            request == controlRequest -> {
-                controlRequest = null
-                if (ack.ok()) {
-                    if (composer.text.trim() == controlDraft) composer = TextFieldValue()
-                    if (controlKind == "name") notice("Session renamed")
-                } else notice(error(ack))
-                controlDraft = ""
-            }
-            request == historyRequest -> { historyRequest = null; historyLoading = false; if (ack.ok()) ensureUserContext() else notice(error(ack)) }
-            request == documentRequest -> { documentRequest = null; if (!ack.ok()) notice(error(ack)) }
-            request == configurationRequest -> {
-                configurationRequest = null; configurationPending = false
-                effect(Effect.ConfigurationResult(if (ack.ok()) null else error(ack)))
-            }
-            abortRequests.remove(request) -> if (!ack.ok()) notice("Pi rejected the command: ${error(ack)}")
+            controls.acknowledged(request, ack.ok(), error(ack)) -> Unit
+            history.acknowledged(request, ack.ok(), error(ack)) -> Unit
+            documents.acknowledged(request, ack.ok(), error(ack)) -> Unit
+            configurationChanges.acknowledged(request, ack.ok(), error(ack)) -> Unit
             else -> {
                 val result = outbox.acknowledge(ack)
                 if (!result.handled) return
                 if (!ack.ok()) {
                     notice("Pi rejected the command: ${error(ack)}")
-                    if (result.rejectedText != null && composer.text.isEmpty() && attachments.isEmpty() && !preparing) setText(result.rejectedText)
+                    result.rejectedText?.let { draft.restore(it) }
                 }
                 render()
             }
@@ -319,47 +271,20 @@ class ChatSession(
     override fun onCommandUncertain(requestId: String, sessionId: String, reason: String) {
         if (sessionId != this.sessionId) return
         when {
-            requestId == controlRequest -> { controlRequest = null; notice("Command result unknown: $reason") }
-            requestId == historyRequest -> { historyRequest = null; historyLoading = false; notice("History could not be loaded: $reason") }
-            requestId == documentRequest -> { documentRequest = null; notice("File could not be loaded: $reason") }
-            requestId == configurationRequest -> {
-                configurationRequest = null; configurationPending = false
-                effect(Effect.ConfigurationResult("Result unknown. Check the model in the terminal before retrying."))
-            }
-            abortRequests.remove(requestId) -> notice("Result unknown: $reason")
+            controls.uncertain(requestId, reason) -> Unit
+            history.uncertain(requestId, reason) -> Unit
+            documents.uncertain(requestId, reason) -> Unit
+            configurationChanges.uncertain(requestId) -> Unit
             outbox.uncertain(requestId, sessionId) -> { notice("Result unknown: $reason"); render() }
         }
     }
     override fun onProtocolError(message: String) { notice("Protocol error: $message") }
 
-    private fun readHistory(frame: JSONObject) {
-        val history = frame.optJSONObject("history") ?: return
-        historyBefore = history.optString("before"); hasMore = history.optBoolean("hasMore")
+    private fun historyCursor(frame: JSONObject) = frame.optJSONObject("history")?.let {
+        HistorySession.Cursor(it.optString("before"), it.optBoolean("hasMore"))
     }
-    private fun render(change: TranscriptStore.ChangeSet? = null, animateUpdates: Boolean = false, animateAdded: Boolean = change != null) {
-        presentation.submit(outbox.reconcile(store.transcript()))
-        persist(outbox.localReceipts()); queue = outbox.queuedMessages(); publishItems(animateUpdates, animateAdded)
-        val first = !firstRendered && items.isNotEmpty()
-        if (first || (followTail && change?.tailTouched() == true)) { smoothTail = !first; tailRevision++ }
-        if (first) firstRendered = true
-    }
-    private fun publishItems(animateUpdates: Boolean, animateAdded: Boolean = false) {
-        val next = presentation.items()
-        if (firstRendered && (animateUpdates || animateAdded)) {
-            val prior = items.associateBy { it.row.key }
-            val arrivals = next.filter { item ->
-                val old = prior[item.row.key]
-                old == null || (animateUpdates && (old.row.message != item.row.message || old.tools != item.tools || old.expanded != item.expanded))
-            }.mapTo(mutableSetOf()) { it.row.key }
-            if (arrivals.isNotEmpty()) {
-                arrivingKeys = arrivals; arrivalRevision++
-                if (!followTail) newActivity = true
-            }
-        }
-        items = next
-    }
-    private fun tail() { followTail = true; newActivity = false; restoreViewport = null; smoothTail = true; tailRevision++ }
-    private fun setText(text: String) { composer = TextFieldValue(text, TextRange(text.length)) }
+    private fun render() = transcript.render()
+    private fun tail() = viewport.tail()
     private fun notice(text: String) { showNotice(text); effect(Effect.Notice(text)) }
     private fun error(ack: Ack) = ack.error().ifEmpty { "no details" }
 }

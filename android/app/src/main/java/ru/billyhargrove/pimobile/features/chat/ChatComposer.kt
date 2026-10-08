@@ -34,10 +34,10 @@ import ru.billyhargrove.pimobile.R
 import ru.billyhargrove.pimobile.core.*
 import ru.billyhargrove.pimobile.ui.*
 
-/** Draft/caret/bytes stay with ChatSession. This component owns only local modal/focus geometry. */
+/** ComposerSession owns the draft behind the ChatSession facade; this component owns local modal/focus geometry. */
 @Composable
 internal fun ChatComposer(chat: ChatSession, behavior: CommandBuilder.Behavior,
-    onBehavior: (CommandBuilder.Behavior) -> Unit, orchestration: org.json.JSONObject?,
+    onBehavior: (CommandBuilder.Behavior) -> Unit, orchestration: ActiveWork.Snapshot,
     onOrchestration: (String, String, String) -> Unit, onAttach: () -> Unit, onVoice: () -> Unit,
     onEffort: (Rect) -> Unit, keyboardVisible: Boolean, canvasHeight: androidx.compose.ui.unit.Dp,
     topHeight: androidx.compose.ui.unit.Dp, prefix: String, modifier: Modifier = Modifier) {

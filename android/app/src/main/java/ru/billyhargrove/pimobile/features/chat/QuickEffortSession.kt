@@ -4,9 +4,11 @@ import androidx.compose.runtime.*
 import org.json.JSONObject
 
 /** Preview/commit, pending and confirmed rollback state for one anchored panel. */
-internal class QuickEffortSession(initial: JSONObject, current: String, private val editable: Boolean,
+internal class QuickEffortSession(initial: ModelCapabilities.Model, current: String, private val editable: Boolean,
     currentTier: String?, private val apply: (String) -> Unit, private val changeTier: ((String) -> Unit)?) {
-    var model by mutableStateOf(ModelCapabilities.model(initial)); private set
+    constructor(initial: JSONObject, current: String, editable: Boolean, currentTier: String?, apply: (String) -> Unit,
+        changeTier: ((String) -> Unit)?) : this(ModelCapabilities.model(initial), current, editable, currentTier, apply, changeTier)
+    var model by mutableStateOf(initial); private set
     var selected by mutableStateOf(ModelCapabilities.reported(model.levels, current)); private set
     var tier by mutableStateOf(ModelCapabilities.tier(currentTier)); private set
     var pending by mutableStateOf(false); private set
@@ -36,10 +38,11 @@ internal class QuickEffortSession(initial: JSONObject, current: String, private 
     }
     fun updateConfiguration(config: JSONObject) {
         if (closed) return
-        val catalog = ModelCapabilities.project(config)
         val previous = model; configurationRevision++
-        if (config.has("model")) model = catalog.selected ?: if (!config.has("models") && catalog.current == model.key) model else ModelCapabilities.unavailable(catalog.current)
-        else catalog.byKey[model.key]?.let { model = it }
+        val key = if (config.has("model")) config.optString("model") else model.key
+        val reported = ModelCapabilities.find(config, key)
+        if (config.has("model")) model = reported ?: if (!config.has("models") && key == model.key) model else ModelCapabilities.unavailable(key)
+        else reported?.let { model = it }
         if (config.has("thinkingLevel") || previous.sliderKey != model.sliderKey) {
             confirmedLevel = ModelCapabilities.reported(model.levels, config.optString("thinkingLevel", confirmedLevel))
             selected = confirmedLevel; effortRevision = configurationRevision

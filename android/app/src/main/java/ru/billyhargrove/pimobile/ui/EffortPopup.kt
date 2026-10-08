@@ -11,17 +11,21 @@ import androidx.lifecycle.*
 import androidx.savedstate.*
 import ru.billyhargrove.pimobile.features.chat.QuickEffortSession
 import ru.billyhargrove.pimobile.features.chat.QuickEffortScreen
+import ru.billyhargrove.pimobile.features.chat.ModelCapabilities
 import org.json.JSONObject
 import java.util.function.Consumer
 import java.util.function.Supplier
 
 /** Anchored effort panel. Selections/ACK never close it; dismissal belongs to the user. */
-class EffortPopup(anchor: View, anchorBounds: Supplier<Rect>, initialModel: JSONObject, current: String, editable: Boolean,
+class EffortPopup internal constructor(anchor: View, anchorBounds: Supplier<Rect>, initialModel: ModelCapabilities.Model, current: String, editable: Boolean,
     openModels: Runnable, callback: Apply, currentTier: String?, changeTier: Consumer<String>?) : PopupWindow() {
     fun interface Apply { fun apply(level: String) }
     private val owner = QuickEffortSession(initialModel, current, editable, currentTier, callback::apply,
         changeTier?.let { change -> { value -> change.accept(value) } })
     internal val awaitingResult get() = owner.pending
+    constructor(anchor: View, anchorBounds: Supplier<Rect>, initialModel: JSONObject, current: String, editable: Boolean,
+        openModels: Runnable, callback: Apply, currentTier: String?, changeTier: Consumer<String>?) :
+        this(anchor, anchorBounds, ModelCapabilities.model(initialModel), current, editable, openModels, callback, currentTier, changeTier)
     constructor(anchor: View, model: JSONObject, current: String, callback: Apply) : this(anchor, model, current, true, Runnable {}, callback)
     constructor(anchor: View, model: JSONObject, current: String, editable: Boolean, openModels: Runnable, callback: Apply) :
         this(anchor, model, current, editable, openModels, callback, "standard", null)

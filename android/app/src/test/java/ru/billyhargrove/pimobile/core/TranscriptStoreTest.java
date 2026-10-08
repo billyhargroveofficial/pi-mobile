@@ -178,4 +178,47 @@ public class TranscriptStoreTest {
         assertEquals(1, changeSet.added());
         assertEquals(Arrays.asList("a", "новое"), texts(store.transcript()));
     }
+
+    @Test public void contextIndexTracksDuplicateIdsRoleChangesRemovalAndReset() {
+        TranscriptStore store = new TranscriptStore();
+        store.replaceAll(Arrays.asList(user("u", "first"), assistant("u", "replaced"), user("u2", "kept")));
+        assertTrue(store.getHasUserContext());
+        store.apply(Collections.singletonList(assistant("u2", "now assistant")), null);
+        assertFalse(store.getHasUserContext());
+        store.apply(Arrays.asList(user("u", "prompt"), user("u", "prompt")), null);
+        assertTrue(store.getHasUserContext());
+        store.apply(null, Arrays.asList("missing", "u", "u")); assertFalse(store.getHasUserContext());
+        store.apply(Collections.singletonList(user("new", "new")), null); assertTrue(store.getHasUserContext());
+        store.replaceAll(Collections.singletonList(assistant("tail", "tail"))); assertFalse(store.getHasUserContext());
+        store.apply(Collections.singletonList(user("new", "new")), null); store.clear(); assertFalse(store.getHasUserContext());
+    }
+    @Test public void prependedContextUsesLiveRoleAndDeduplicatesOverlappingPages() {
+        TranscriptStore store = new TranscriptStore(); store.replaceAll(Collections.singletonList(assistant("live", "current")));
+        store.prepend(Arrays.asList(user("live", "stale role"), assistant("old", "old")));
+        assertFalse(store.getHasUserContext()); assertEquals("current", store.byId("live").text());
+        store.prepend(Arrays.asList(user("u", "old prompt"), user("u", "duplicate")));
+        assertTrue(store.getHasUserContext());
+        store.prepend(Collections.singletonList(user("u", "repeated page")));
+        store.apply(null, Collections.singletonList("u")); assertFalse(store.getHasUserContext());
+    }
+    @Test public void anonymousUserRowsRemainContextUntilAllDistinctRowsAreRemovedBySnapshot() {
+        TranscriptStore store = new TranscriptStore(); ChatMessage anonymous = user("", "prompt");
+        store.replaceAll(Arrays.asList(anonymous, anonymous, null)); assertTrue(store.getHasUserContext());
+        store.apply(Collections.singletonList(anonymous), null); assertTrue(store.getHasUserContext());
+        store.replaceAll(Collections.emptyList()); assertFalse(store.getHasUserContext());
+    }
+    @Test public void contextIndexMatchesCanonicalTranscriptAcrossMixedOperations() {
+        TranscriptStore store = new TranscriptStore(); java.util.Random random = new java.util.Random(417);
+        for (int step = 0; step < 2000; step++) {
+            ChatMessage row = msg("m" + random.nextInt(50), random.nextBoolean() ? ChatMessage.Role.USER : ChatMessage.Role.ASSISTANT, "s" + step);
+            switch (random.nextInt(5)) {
+                case 0: store.replaceAll(Arrays.asList(row, assistant(row.id(), "last wins"), user("other", "prompt"))); break;
+                case 1: store.apply(Collections.singletonList(row), Arrays.asList("m" + random.nextInt(50), "other")); break;
+                case 2: store.prepend(Arrays.asList(row, user(row.id(), "overlap"))); break;
+                case 3: store.apply(Collections.singletonList(row), null); break;
+                default: store.clear(); break;
+            }
+            assertEquals("Canonical context at step " + step, store.transcript().stream().anyMatch(m -> m.role() == ChatMessage.Role.USER), store.getHasUserContext());
+        }
+    }
 }

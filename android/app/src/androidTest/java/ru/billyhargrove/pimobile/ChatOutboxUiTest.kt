@@ -1,6 +1,8 @@
 package ru.billyhargrove.pimobile
 
 import android.graphics.Bitmap
+import android.graphics.Rect
+import android.view.Choreographer
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -14,6 +16,8 @@ import ru.billyhargrove.pimobile.core.*
 import ru.billyhargrove.pimobile.features.chat.ChatSession
 import ru.billyhargrove.pimobile.media.Attachment
 import ru.billyhargrove.pimobile.store.PendingMessages
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class ChatOutboxUiTest {
@@ -27,7 +31,24 @@ class ChatOutboxUiTest {
     private fun idle() { instrumentation.waitForIdleSync(); device.waitForIdle(1000) }
     private fun file(name: String) = Attachment(ImagePayload.file(byteArrayOf(1, 2), name), null, name)
     private fun receipt(chat: ChatSession, request: String = "request-1") = chat.items.map { it.row.message!! }.first { it.requestId() == request }
-    private fun tap(text: String) { assertTrue(device.wait(Until.hasObject(By.text(text)), 5000)); device.findObject(By.text(text)).click(); idle() }
+    private fun tap(text: String) {
+        assertTrue(device.wait(Until.hasObject(By.text(text)), 5000))
+        // Removing the occupied draft's attachment changes the measured floating
+        // composer/list padding. Click the current target after actual frame geometry settles.
+        val deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(5)
+        var previous: Rect?=null;var matches=0
+        val positions=mutableListOf<Rect>()
+        while(System.nanoTime()<deadline) {
+            val frame=CountDownLatch(1)
+            instrumentation.runOnMainSync { Choreographer.getInstance().postFrameCallback { frame.countDown() } }
+            assertTrue(frame.await(2,TimeUnit.SECONDS));instrumentation.uiAutomation.clearCache()
+            val target=device.findObject(By.text(text)) ?: continue
+            val bounds=Rect(target.visibleBounds);positions.add(bounds)
+            matches=if(bounds==previous) matches+1 else 0;previous=bounds
+            if(matches>=3) { println("Outbox $text tap bounds: ${positions.distinct()}");target.click();idle();return }
+        }
+        fail("$text target geometry did not settle: $positions")
+    }
 
     @Test fun failedWriteKeepsComposerAndAttachment() {
         launch().use { scenario ->

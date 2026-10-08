@@ -2,32 +2,25 @@ package ru.billyhargrove.pimobile.ui
 
 import android.content.Context
 import android.widget.TextView
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.unit.*
 import androidx.compose.ui.viewinterop.AndroidView
 import ru.billyhargrove.pimobile.R
+import ru.billyhargrove.pimobile.features.chat.DocumentScreen
 
-class MarkdownPreview(context: Context, path: String, source: String, links: MarkdownRenderer.Links) : ComposeSheet(context) {
+/** Native modal/Markdown host. Feature presentation owns geometry and scroll. */
+class MarkdownPreview(context: Context, private val path: String, private val source: String, links: MarkdownRenderer.Links) : ComposeSheet(context) {
     private val renderer = MarkdownRenderer(context, links)
+    private var afterClosed: () -> Unit = {}
+    fun onClosed(action: () -> Unit) { afterClosed = action }
+    fun matches(path: String, source: String) = this.path == path && this.source == source
     init {
+        val maxHeight = (context.resources.displayMetrics.heightPixels / context.resources.displayMetrics.density * .85f).dp
         content {
-            Column(Modifier.fillMaxWidth().heightIn(max = (context.resources.displayMetrics.heightPixels / context.resources.displayMetrics.density * .85f).dp)
-                .navigationBarsPadding().padding(20.dp)) {
-                Row(Modifier.fillMaxWidth()) {
-                    Text(path, Modifier.weight(1f), maxLines = 2, fontSize = 16.sp)
-                    TextButton(onClick = ::dismiss) { Text("Close") }
-                }
-                Column(Modifier.weight(1f, false).verticalScroll(rememberScrollState())) {
-                    AndroidView(factory = { TextView(it).apply { id = R.id.documentText; textSize = 16f; setTextColor(context.getColor(R.color.text_primary)); setTextIsSelectable(true) } },
-                        update = { renderer.render(it, source) }, modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp))
-                }
+            DocumentScreen(path, source, maxHeight, context.packageName, ::dismiss) { text, modifier ->
+                AndroidView(factory = { TextView(it).apply { id = R.id.documentText; textSize = 16f; setTextColor(context.getColor(R.color.text_primary)); setTextIsSelectable(true) } },
+                    update = { renderer.render(it, text) }, modifier = modifier)
             }
         }
-        setOnDismissListener { renderer.close() }
+        setOnDismissListener { renderer.close(); afterClosed() }
     }
 }

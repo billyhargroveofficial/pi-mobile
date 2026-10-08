@@ -28,6 +28,17 @@ internal object ModelCapabilities {
         return Catalog(models, config.optString("model"), config.optString("thinkingLevel", "off"), tier(config.optString("serviceTier")),
             config.optBoolean("modelsTruncated") || (array?.length() ?: 0) > 1000)
     }
+    /** The quick panel needs one model, not a catalog/map and every model's capabilities. */
+    fun find(config: JSONObject, key: String = config.optString("model")): Model? {
+        if (!config.has("models")) return null
+        val array = config.optJSONArray("models") ?: return null
+        for (index in 0 until minOf(1000, array.length())) {
+            val value = array.optJSONObject(index) ?: continue
+            val provider = value.opt("provider") as? String; val id = value.opt("id") as? String
+            if (!provider.isNullOrEmpty() && !id.isNullOrEmpty() && "$provider/$id" == key) return model(value)
+        }
+        return null
+    }
     /** A standalone quick panel may have capabilities even without registry identity. */
     fun model(value: JSONObject) = Model(value.optString("provider"), value.optString("id"),
         (value.opt("name") as? String)?.takeIf { it.isNotEmpty() } ?: value.optString("id"), levels(value.optJSONArray("thinkingLevels")), supportsFast(value.optJSONArray("serviceTiers")))

@@ -4,9 +4,9 @@ import androidx.compose.runtime.*
 import org.json.JSONObject
 
 /** Owns the draft and explicit Apply; confirmed wire commands remain in ChatSession. */
-internal class ModelSettingsSession(config: JSONObject, private val idle: Boolean, private val apply: (Selection) -> Unit) {
+internal class ModelSettingsSession(val catalog: ModelCapabilities.Catalog, private val idle: Boolean, private val apply: (Selection) -> Unit) {
+    constructor(config: JSONObject, idle: Boolean, apply: (Selection) -> Unit) : this(ModelCapabilities.project(config), idle, apply)
     data class Selection(val provider: String, val model: String, val effort: String, val tier: String?)
-    val catalog = ModelCapabilities.project(config)
     var selected by mutableStateOf(catalog.selected); private set
     var effort by mutableStateOf(ModelCapabilities.fit(selected?.levels.orEmpty(), catalog.effort)); private set
     var tier by mutableStateOf(catalog.tier); private set

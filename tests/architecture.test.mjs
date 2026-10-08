@@ -153,3 +153,137 @@ test('missing owners and dual-language copies fail closed',async t=>{
  await writeFile(path.join(absolute,'features/chat/New.kt'),'package ru.billyhargrove.pimobile.features.chat\nclass New');
  assert.match(checkArchitecture(root).join('\n'),/features\/chat\/New.kt: no source ownership registered/);
 });
+
+test('update state owns lifecycle without HTTP or platform; its screen only presents actions',()=>{
+ const prefix=`${androidRoot}/features/updater/`,state=prefix+'UpdateSession.kt',screen=prefix+'UpdateScreen.kt';
+ for(const source of ['import android.content.Context','import java.net.URL','import okhttp3.OkHttpClient','import ru.billyhargrove.pimobile.net.ReleaseClient','import ru.billyhargrove.pimobile.ui.UpdateInstaller'])
+  assert.match(checkSourceContract(state,source,ownership).join('\n'),/platform-free-state must not reference/);
+ assert.match(checkSourceContract(state,'fun render() { UpdateScreen() }',ownership,{'features/updater/UpdateScreen':['UpdateScreen']}).join('\n'),/must not depend on presentation-only/);
+ for(const source of ['import android.content.Intent','import okhttp3.OkHttpClient','import ru.billyhargrove.pimobile.net.ReleaseClient','import ru.billyhargrove.pimobile.store.SettingsStore'])
+  assert.match(checkSourceContract(screen,source,ownership).join('\n'),/presentation-only must not reference/);
+ assert.deepEqual(checkSourceContract(state,'import androidx.compose.runtime.*\nimport java.io.File\nimport ru.billyhargrove.pimobile.core.ReleaseUpdate',ownership),[]);
+});
+
+test('voice state and PCM policy are platform free; screen cannot capture or upload audio',()=>{
+ const state=`${androidRoot}/features/voice/RecordingSession.kt`,screen=state.replace('Session','Screen'),pcm=`${androidRoot}/core/PcmAudio.kt`;
+ for(const source of ['import android.media.AudioRecord','import android.os.Handler','import ru.billyhargrove.pimobile.media.PcmRecorder','import ru.billyhargrove.pimobile.net.HttpApi','import java.net.URL','import okhttp3.OkHttpClient'])
+  assert.match(checkSourceContract(state,source,ownership).join('\n'),/platform-free-state must not reference/);
+ assert.match(checkSourceContract(state,'fun show() { RecordingScreen() }',ownership,{'features/voice/RecordingScreen':['RecordingScreen']}).join('\n'),/must not depend on presentation-only/);
+ for(const source of ['import android.media.AudioRecord','import ru.billyhargrove.pimobile.media.PcmRecorder','import java.io.FileOutputStream','import ru.billyhargrove.pimobile.net.HttpApi','import okhttp3.OkHttpClient'])
+  assert.match(checkSourceContract(screen,source,ownership).join('\n'),/presentation-only must not reference/);
+ for(const source of ['import android.media.AudioRecord','import java.net.URL','import okhttp3.OkHttpClient'])
+  assert.match(checkSourceContract(pcm,source,ownership).join('\n'),/pure-projection must not reference/);
+ assert.deepEqual(checkSourceContract(screen,'import ru.billyhargrove.pimobile.ui.Waveform',ownership),[]);
+});
+
+test('transcription handoff state cannot own HTTP, capture, credentials or platform lifecycle',()=>{
+ const state=`${androidRoot}/features/chat/TranscriptionSession.kt`;
+ for(const source of ['import android.app.Activity','import android.os.Handler','import okhttp3.Call','import java.net.URL','import ru.billyhargrove.pimobile.net.SpeechTranscriber','import ru.billyhargrove.pimobile.store.SettingsStore','import ru.billyhargrove.pimobile.ui.DictationRecorder'])
+  assert.match(checkSourceContract(state,source,ownership).join('\n'),/platform-free-state must not reference/);
+ assert.match(checkSourceContract(state,'fun render() { ChatScreen() }',ownership,{'features/chat/ChatScreen':['ChatScreen']}).join('\n'),/must not depend on presentation-only/);
+ assert.deepEqual(checkSourceContract(state,'import java.io.File',ownership),[]);
+});
+
+test('attachment handoff state cannot own URI IO, thumbnails, credentials or presentation',()=>{
+ const state=`${androidRoot}/features/chat/AttachmentSession.kt`;
+ for(const source of ['import android.net.Uri','import android.content.ContentResolver','import android.graphics.Bitmap','import ru.billyhargrove.pimobile.media.PickedAttachments','import ru.billyhargrove.pimobile.net.AttachmentPreparer','import ru.billyhargrove.pimobile.store.SettingsStore','import okhttp3.OkHttpClient'])
+  assert.match(checkSourceContract(state,source,ownership).join('\n'),/platform-free-state must not reference/);
+ assert.match(checkSourceContract(state,'fun render() { ChatScreen() }',ownership,{'features/chat/ChatScreen':['ChatScreen']}).join('\n'),/must not depend on presentation-only/);
+ assert.deepEqual(checkSourceContract(state,'import ru.billyhargrove.pimobile.core.ImageGuard',ownership),[]);
+ assert.match(checkAndroidImports(`${androidRoot}/media/AttachmentImporter.kt`,'import ru.billyhargrove.pimobile.net.AppExecutors').join('\n'),/must not depend on net/);
+});
+
+test('document state and screen keep request and native Markdown boundaries separate',()=>{
+ const state=`${androidRoot}/features/chat/DocumentSession.kt`,screen=state.replace('Session','Screen');
+ for(const source of ['import android.net.Uri','import android.content.Intent','import android.widget.TextView','import ru.billyhargrove.pimobile.net.PiClient','import ru.billyhargrove.pimobile.store.SettingsStore','import ru.billyhargrove.pimobile.ui.MarkdownRenderer'])
+  assert.match(checkSourceContract(state,source,ownership).join('\n'),/platform-free-state must not reference/);
+ assert.match(checkSourceContract(state,'fun render() { DocumentScreen() }',ownership,{'features/chat/DocumentScreen':['DocumentScreen']}).join('\n'),/must not depend on presentation-only/);
+ for(const source of ['import android.widget.TextView','import android.net.Uri','import java.io.File','import ru.billyhargrove.pimobile.net.PiClient','import ru.billyhargrove.pimobile.store.SettingsStore'])
+  assert.match(checkSourceContract(screen,source,ownership).join('\n'),/presentation-only must not reference/);
+ assert.deepEqual(checkSourceContract(state,'val request: String? = null',ownership),[]);
+});
+
+test('history pagination owns tickets and cursor policy without platform IO or rendering',()=>{
+ const state=`${androidRoot}/features/chat/HistorySession.kt`;
+ for(const source of ['import android.os.Handler','import okhttp3.OkHttpClient','import ru.billyhargrove.pimobile.net.PiClient','import ru.billyhargrove.pimobile.store.ConversationCache','import ru.billyhargrove.pimobile.ui.MarkdownRenderer'])
+  assert.match(checkSourceContract(state,source,ownership).join('\n'),/platform-free-state must not reference/);
+ assert.match(checkSourceContract(state,'fun render() { ChatScreen() }',ownership,{'features/chat/ChatScreen':['ChatScreen']}).join('\n'),/must not depend on presentation-only/);
+ assert.deepEqual(checkSourceContract(state,'val cursor: String? = null',ownership),[]);
+});
+
+test('chat control state and MCP projection cannot own transport/platform or native rendering',()=>{
+ const state=`${androidRoot}/features/chat/ControlSession.kt`,projection=`${androidRoot}/features/chat/McpProjection.kt`;
+ for(const source of ['import android.os.Handler','import okhttp3.OkHttpClient','import ru.billyhargrove.pimobile.net.PiClient','import ru.billyhargrove.pimobile.store.ConversationCache','import ru.billyhargrove.pimobile.ui.MarkdownRenderer'])
+  for(const file of [state,projection])assert.match(checkSourceContract(file,source,ownership).join('\n'),/must not reference/);
+ assert.match(checkSourceContract(state,'fun render() { ChatScreen() }',ownership,{'features/chat/ChatScreen':['ChatScreen']}).join('\n'),/must not depend on presentation-only/);
+ assert.match(checkSourceContract(projection,'fun change() { ControlSession() }',ownership,{'features/chat/ControlSession':['ControlSession']}).join('\n'),/pure-projection must not depend on platform-free-state/);
+ assert.deepEqual(checkSourceContract(projection,'import org.json.JSONObject',ownership),[]);
+});
+
+test('configuration request state cannot own platform IO or panel rendering',()=>{
+ const state=`${androidRoot}/features/chat/ConfigurationSession.kt`;
+ for(const source of ['import android.os.Handler','import okhttp3.OkHttpClient','import ru.billyhargrove.pimobile.net.PiClient','import ru.billyhargrove.pimobile.store.SettingsStore','import ru.billyhargrove.pimobile.ui.ModelSettingsSheet'])
+  assert.match(checkSourceContract(state,source,ownership).join('\n'),/platform-free-state must not reference/);
+ assert.match(checkSourceContract(state,'fun render() { QuickEffortScreen() }',ownership,{'features/chat/QuickEffortScreen':['QuickEffortScreen']}).join('\n'),/must not depend on presentation-only/);
+ assert.deepEqual(checkSourceContract(state,'val request: String? = null',ownership),[]);
+});
+
+test('viewport policy cannot own Android measurement, transport or renderer',()=>{
+ const state=`${androidRoot}/features/chat/ViewportSession.kt`;
+ for(const source of ['import android.view.Choreographer','import androidx.compose.foundation.lazy.LazyListState','import ru.billyhargrove.pimobile.net.PiClient','import ru.billyhargrove.pimobile.store.ConversationCache','import ru.billyhargrove.pimobile.ui.PiTranscript'])
+  assert.match(checkSourceContract(state,source,ownership).join('\n'),/platform-free-state must not reference/);
+ assert.match(checkSourceContract(state,'fun render() { ChatScreen() }',ownership,{'features/chat/ChatScreen':['ChatScreen']}).join('\n'),/must not depend on presentation-only/);
+ assert.deepEqual(checkSourceContract(state,'import androidx.compose.runtime.mutableStateOf',ownership),[]);
+});
+
+test('queue projection cannot own persistence, commands, Compose or outbox state',()=>{
+ const projection=`${androidRoot}/features/chat/QueueProjection.kt`;
+ for(const source of ['import android.content.SharedPreferences','import androidx.compose.runtime.mutableStateOf','import ru.billyhargrove.pimobile.net.PiClient','import ru.billyhargrove.pimobile.store.PendingMessages','import ru.billyhargrove.pimobile.media.Attachment'])
+  assert.match(checkSourceContract(projection,source,ownership).join('\n'),/pure-projection must not reference/);
+ assert.match(checkSourceContract(projection,'fun mutate() { ViewportSession() }',ownership,{'features/chat/ViewportSession':['ViewportSession']}).join('\n'),/pure-projection must not depend on platform-free-state/);
+ assert.deepEqual(checkSourceContract(projection,'import ru.billyhargrove.pimobile.core.ChatMessage',ownership),[]);
+});
+
+test('composer policy keeps editor and attachments opaque and cannot reach rendering or IO',()=>{
+ const state=`${androidRoot}/features/chat/ComposerSession.kt`;
+ for(const source of ['import android.content.Context','import androidx.compose.ui.text.input.TextFieldValue','import androidx.compose.ui.text.TextRange','import ru.billyhargrove.pimobile.media.Attachment','import ru.billyhargrove.pimobile.net.PiClient','import ru.billyhargrove.pimobile.store.PendingMessages','import okhttp3.OkHttpClient'])
+  assert.match(checkSourceContract(state,source,ownership).join('\n'),/platform-free-state must not reference/);
+ assert.match(checkSourceContract(state,'fun render() { ChatComposer() }',ownership,{'features/chat/ChatComposer':['ChatComposer']}).join('\n'),/must not depend on presentation-only/);
+ assert.deepEqual(checkSourceContract(state,'import androidx.compose.runtime.mutableStateOf\nclass Editor<Value>\nval attachments: List<Value>',ownership),[]);
+});
+
+test('transcript owner and shared projection cannot own transport, storage or screen rendering',()=>{
+ const state=`${androidRoot}/features/chat/TranscriptSession.kt`,projection=`${androidRoot}/core/TranscriptPresentation.kt`;
+ for(const source of ['import android.os.Handler','import ru.billyhargrove.pimobile.net.PiClient','import ru.billyhargrove.pimobile.store.ConversationCache','import ru.billyhargrove.pimobile.media.Attachment'])
+  for(const file of [state,projection])assert.match(checkSourceContract(file,source,ownership).join('\n'),/must not reference/);
+ assert.match(checkSourceContract(state,'fun render() { ChatScreen() }',ownership,{'features/chat/ChatScreen':['ChatScreen']}).join('\n'),/must not depend on presentation-only/);
+ assert.match(checkSourceContract(projection,'import androidx.compose.runtime.mutableStateOf',ownership).join('\n'),/pure-projection must not reference/);
+ assert.deepEqual(checkSourceContract(projection,'import org.json.JSONObject\nimport ru.billyhargrove.pimobile.core.WorkTimeline',ownership),[]);
+});
+
+test('configuration panel policy cannot construct Android windows or own command transport',()=>{
+ const state=`${androidRoot}/features/chat/ConfigurationPanels.kt`;
+ for(const source of ['import android.graphics.Rect','import android.view.inputmethod.InputMethodManager','import ru.billyhargrove.pimobile.ui.EffortPopup','import ru.billyhargrove.pimobile.net.PiClient','import ru.billyhargrove.pimobile.store.SettingsStore','import okhttp3.OkHttpClient'])
+  assert.match(checkSourceContract(state,source,ownership).join('\n'),/platform-free-state must not reference/);
+ assert.match(checkSourceContract(state,'fun render() { QuickEffortScreen() }',ownership,{'features/chat/QuickEffortScreen':['QuickEffortScreen']}).join('\n'),/must not depend on presentation-only/);
+ assert.deepEqual(checkSourceContract(state,'import org.json.JSONObject\ninterface Window { fun close() }',ownership),[]);
+});
+
+test('active work facts and rendering keep their source direction and cannot fetch or mutate a session',()=>{
+ const projection=`${androidRoot}/core/ActiveWork.kt`,screen=`${androidRoot}/features/orchestration/ActiveWorkScreen.kt`;
+ for(const source of ['import android.os.Handler','import androidx.compose.runtime.mutableStateOf','import ru.billyhargrove.pimobile.net.PiClient','import ru.billyhargrove.pimobile.store.SettingsStore','import okhttp3.OkHttpClient'])
+  assert.match(checkSourceContract(projection,source,ownership).join('\n'),/pure-projection must not reference/);
+ assert.match(checkSourceContract(projection,'import ru.billyhargrove.pimobile.features.orchestration.ActiveWorkScreen\nfun render() { ActiveWorkScreen() }',ownership,{'features/orchestration/ActiveWorkScreen':['ActiveWorkScreen']}).join('\n'),/pure-projection must not depend on presentation-only/);
+ assert.match(checkSourceContract(screen,'import ru.billyhargrove.pimobile.net.PiClient',ownership).join('\n'),/presentation-only must not reference/);
+ assert.deepEqual(checkSourceContract(screen,'import ru.billyhargrove.pimobile.core.ActiveWork',ownership),[]);
+});
+
+test('transcript image lifecycle uses opaque pixels and presentation cannot open platform windows',()=>{
+ const state=`${androidRoot}/features/chat/TranscriptImageSession.kt`,screen=`${androidRoot}/features/chat/TranscriptImageScreen.kt`;
+ for(const source of ['import android.graphics.Bitmap','import ru.billyhargrove.pimobile.net.MediaLoader','import ru.billyhargrove.pimobile.store.SettingsStore','import ru.billyhargrove.pimobile.ui.ImageViewer'])
+  assert.match(checkSourceContract(state,source,ownership).join('\n'),/platform-free-state must not reference/);
+ assert.match(checkSourceContract(state,'fun render() { TranscriptImageScreen() }',ownership,{'features/chat/TranscriptImageScreen':['TranscriptImageScreen']}).join('\n'),/must not depend on presentation-only/);
+ for(const source of ['import android.app.Dialog','import android.graphics.Bitmap','import ru.billyhargrove.pimobile.net.PiClient','import ru.billyhargrove.pimobile.ui.ImageViewer'])
+  assert.match(checkSourceContract(screen,source,ownership).join('\n'),/presentation-only must not reference/);
+ assert.deepEqual(checkSourceContract(screen,'import androidx.compose.ui.graphics.ImageBitmap',ownership),[]);
+});

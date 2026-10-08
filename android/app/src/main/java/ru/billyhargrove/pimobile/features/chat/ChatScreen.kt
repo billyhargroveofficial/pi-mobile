@@ -47,6 +47,7 @@ fun ChatScreen(
     val prefix = "${context.packageName}:id/"
     val background = colorResource(R.color.bg)
     val density = LocalDensity.current
+    val activeWork = remember(orchestration) { ActiveWork.project(orchestration) }
     val keyboardVisible = WindowInsets.ime.getBottom(density) > 0
     val scope = rememberCoroutineScope()
     var topHeight by remember { mutableStateOf(100.dp) }
@@ -68,11 +69,11 @@ fun ChatScreen(
             .collect { (index, moving, following) -> if (moving && !following && index < 3) chat.loadOlder() }
     }
     val restore = chat.restoreViewport
-    LaunchedEffect(chat.arrivalRevision) {
+    LaunchedEffect(chat, chat.arrivalRevision) {
         val revision = chat.arrivalRevision
         delay(420); chat.arrivalsShown(revision)
     }
-    LaunchedEffect(restore, chat.items) {
+    LaunchedEffect(chat, restore, chat.items) {
         if (restore != null) {
             val position = chat.items.indexOfFirst { it.row.key == restore.key || it.row.key == restore.key.removePrefix("progress:") }
             if (position >= 0) list.scrollToItem(position, (-restore.offset).coerceAtLeast(0))
@@ -140,9 +141,9 @@ fun ChatScreen(
                 }
             }
         }
-        ChatHeader(chat, orchestration, onBack, onOrchestration, prefix,
+        ChatHeader(chat, activeWork, onBack, onOrchestration, prefix,
             Modifier.align(Alignment.TopCenter).onSizeChanged { topHeight = with(density) { it.height.toDp() } })
-        ChatComposer(chat, behavior, onBehavior, orchestration, onOrchestration, onAttach, onVoice, onEffort,
+        ChatComposer(chat, behavior, onBehavior, activeWork, onOrchestration, onAttach, onVoice, onEffort,
             keyboardVisible, canvasHeight, topHeight, prefix,
             Modifier.align(Alignment.BottomCenter).onSizeChanged { bottomHeight = with(density) { it.height.toDp() } })
     }

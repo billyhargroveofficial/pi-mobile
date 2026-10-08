@@ -8,7 +8,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -53,6 +52,8 @@ import ru.billyhargrove.pimobile.core.ChatMessage
 import ru.billyhargrove.pimobile.core.ToolArguments
 import ru.billyhargrove.pimobile.core.TranscriptPresentation
 import ru.billyhargrove.pimobile.net.MediaLoader
+import ru.billyhargrove.pimobile.features.chat.TranscriptImageSession
+import ru.billyhargrove.pimobile.features.chat.TranscriptImageScreen
 
 /** Optional main-chat actions. Omitting them leaves agent inspection read-only. */
 class TranscriptActions(
@@ -310,23 +311,18 @@ private fun NativeMarkdown(text: String, markdown: MarkdownRenderer, ink: Color,
 @Composable
 private fun TranscriptImage(url: String, index: Int, loader: MediaLoader, maxWidth: androidx.compose.ui.unit.Dp, localBitmap: Bitmap? = null) {
     val context = LocalContext.current
-    var bitmap by remember(url) { mutableStateOf<Bitmap?>(null) }
-    var error by remember(url) { mutableStateOf("") }
-    DisposableEffect(url, loader) {
-        var active = true
-        if (!url.startsWith("local:")) loader.load(url, object : MediaLoader.Callback {
-            override fun onLoaded(resolvedUrl: String, value: Bitmap) { if (active) bitmap = value }
-            override fun onFailed(resolvedUrl: String, message: String) { if (active) error = message }
+    val local = url.startsWith("local:")
+    val binding = remember(url, loader) { TranscriptImageSession<Bitmap>(local) { done ->
+        loader.load(url, object : MediaLoader.Callback {
+            override fun onLoaded(resolvedUrl: String, value: Bitmap) { done(value, "") }
+            override fun onFailed(resolvedUrl: String, message: String) { done(null, message) }
         })
-        onDispose { active = false }
+    } }
+    DisposableEffect(binding) {
+        binding.start()
+        onDispose { binding.close() }
     }
-    val loaded = localBitmap ?: bitmap
-    if (loaded != null) {
-        val aspect = loaded.width.toFloat() / loaded.height
-        val width = minOf(maxWidth, 280.dp * aspect)
-        Image(loaded.asImageBitmap(), context.getString(R.string.cd_message_image, index + 1),
-            modifier = Modifier.padding(top = 6.dp, bottom = 8.dp).size(width, width / aspect)
-                .clip(RoundedCornerShape(16.dp)).clickable { ImageViewer.show(context, url, loaded) })
-    } else Text(if (url.startsWith("local:")) "Select attachment again to restore preview" else if (error.isEmpty()) "Loading image…" else "Image unavailable: $error",
-        color = colorResource(R.color.text_secondary), fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+    val loaded = localBitmap ?: binding.state.bitmap
+    val pixels = remember(loaded) { loaded?.asImageBitmap() }
+    TranscriptImageScreen(pixels, index, maxWidth, local, binding.state.error) { ImageViewer.show(context, url, loaded) }
 }

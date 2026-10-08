@@ -9,6 +9,62 @@ class TranscriptPresentationTest {
         ChatMessage.remote(id, role, id, null, if (role == ChatMessage.Role.TOOL_RESULT) "read" else null)
             .withPresentation(turn, phase, "{}", "")
 
+    @Test fun repeatedEqualSourceStatusAndIrrelevantMetadataKeepTheProjectionInstances() {
+        val model = TranscriptPresentation(); val source = listOf(message("u", ChatMessage.Role.USER), message("t", ChatMessage.Role.TOOL_RESULT))
+        model.update(source, SessionStatus.RUNNING, JSONObject().put("activeTurnId", "turn"))
+        val before = model.items()
+        repeat(100) {
+            model.submit(source.toList()); model.sessionStatus(SessionStatus.RUNNING)
+            model.metadata(JSONObject().put("activeTurnId", "turn").put("status", "running").put("observedAt", it))
+        }
+        assertSame(before, model.items()); assertTrue(model.items().last().expanded)
+    }
+    @Test fun statusAndDisclosureReuseTopologyButPublishTheChangedExpansion() {
+        val model = TranscriptPresentation(); model.update(listOf(message("u", ChatMessage.Role.USER), message("t", ChatMessage.Role.TOOL_RESULT)), SessionStatus.RUNNING)
+        val live = model.items(); model.sessionStatus(SessionStatus.IDLE); val settled = model.items()
+        assertNotSame(live, settled); assertSame(live.last().row, settled.last().row); assertSame(live.last().tools, settled.last().tools); assertFalse(settled.last().expanded)
+        model.toggle(settled.last().row.group); assertSame(settled.last().row, model.items().last().row); assertTrue(model.items().last().expanded)
+        val expanded = model.items(); model.sessionStatus(SessionStatus.IDLE); assertSame(expanded, model.items())
+    }
+    @Test fun explicitAtomicStatusWinsOverMetadataWithoutAFalseIdleSettlement() {
+        val model = TranscriptPresentation(); val source = listOf(message("u", ChatMessage.Role.USER), message("t", ChatMessage.Role.TOOL_RESULT))
+        model.update(source, SessionStatus.RUNNING, JSONObject().put("status", "idle").put("activeTurnId", "turn"))
+        assertTrue(model.items().last().expanded)
+        model.update(source, SessionStatus.IDLE, JSONObject().put("status", "running"))
+        assertFalse(model.items().last().expanded)
+    }
+    @Test fun completedTurnSettlesOnceAndDuplicateCompletionKeepsManualDisclosure() {
+        val model = TranscriptPresentation(); model.update(listOf(message("t", ChatMessage.Role.TOOL_RESULT)), SessionStatus.RUNNING)
+        val row = model.items().single().row
+        val done = JSONObject().put("turns", org.json.JSONArray().put(JSONObject().put("id", "turn").put("finishedAt", 1)))
+        model.metadata(done); assertSame(row, model.items().single().row); assertFalse(model.items().single().expanded)
+        model.toggle(row.group); val expanded = model.items(); repeat(50) { model.metadata(done) }
+        assertSame(expanded, model.items()); assertTrue(model.items().single().expanded)
+    }
+    @Test fun externallyMutableSourceCannotSilentlyChangeTheCachedProjection() {
+        val source = mutableListOf(message("u", ChatMessage.Role.USER)); val model = TranscriptPresentation()
+        model.submit(source); val before = model.items(); source.add(message("t", ChatMessage.Role.TOOL_RESULT))
+        model.sessionStatus(SessionStatus.RUNNING); assertSame(before, model.items())
+        model.submit(source); assertEquals(2, model.items().size); assertEquals("t", model.items().last().tools.single().id())
+    }
+    @Test fun publishedItemsAndCachedToolListsCannotBeMutatedByTheCaller() {
+        val model = TranscriptPresentation(); model.submit(listOf(message("t", ChatMessage.Role.TOOL_RESULT)))
+        val before = model.items()
+        try { (before as MutableList).clear(); fail("Published items were mutable") } catch (_: UnsupportedOperationException) {}
+        try { (before.single().tools as MutableList).clear(); fail("Cached tools were mutable") } catch (_: UnsupportedOperationException) {}
+        model.sessionStatus(SessionStatus.RUNNING); assertSame(before, model.items()); assertEquals("t", model.items().single().tools.single().id())
+    }
+    @Test fun resetAndChangedLegacyPromptInvalidateNormalizationAndTopology() {
+        val user = ChatMessage.remote("u", ChatMessage.Role.USER, "prompt", null, null)
+        val tool = ChatMessage.remote("t", ChatMessage.Role.TOOL_RESULT, "output", null, "read")
+        val model = TranscriptPresentation(); model.update(listOf(user, tool), SessionStatus.IDLE)
+        val first = model.items().last(); model.toggle(first.row.group); assertTrue(model.items().last().expanded)
+        model.reset(); model.update(listOf(user, tool), SessionStatus.IDLE)
+        assertNotSame(first.row, model.items().last().row); assertFalse(model.items().last().expanded)
+        model.update(listOf(ChatMessage.remote("older", ChatMessage.Role.USER, "older", null, null), tool), SessionStatus.RUNNING)
+        assertEquals("older", model.items().last().row.turn); assertEquals("tools:older:t", model.items().last().row.group)
+    }
+
     @Test fun independentToolsSettleOnceAndProgressAlwaysRemainsVisible() {
         val model = TranscriptPresentation()
         model.metadata(JSONObject().put("activeTurnId", "turn"))

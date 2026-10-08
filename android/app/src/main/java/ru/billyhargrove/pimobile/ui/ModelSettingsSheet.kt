@@ -5,14 +5,16 @@ import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 import ru.billyhargrove.pimobile.features.chat.ModelSettingsScreen
 import ru.billyhargrove.pimobile.features.chat.ModelSettingsSession
+import ru.billyhargrove.pimobile.features.chat.ModelCapabilities
 
 /** Platform modal adapter for the session-local model draft owner. */
-class ModelSettingsSheet(context: Context, config: JSONObject, idle: Boolean, callback: TierApply) : ComposeSheet(context) {
+class ModelSettingsSheet internal constructor(context: Context, catalog: ModelCapabilities.Catalog, idle: Boolean, callback: TierApply) : ComposeSheet(context) {
     fun interface Apply { fun apply(provider: String, model: String, effort: String) }
     fun interface TierApply { fun apply(provider: String, model: String, effort: String, tier: String?) }
+    constructor(context: Context, config: JSONObject, idle: Boolean, callback: TierApply) : this(context, ModelCapabilities.project(config), idle, callback)
     constructor(context: Context, config: JSONObject, idle: Boolean, callback: Apply) : this(context, config, idle,
         TierApply { provider, model, effort, _ -> callback.apply(provider, model, effort) })
-    private val owner = ModelSettingsSession(config, idle) { callback.apply(it.provider, it.model, it.effort, it.tier) }
+    private val owner = ModelSettingsSession(catalog, idle) { callback.apply(it.provider, it.model, it.effort, it.tier) }
     internal val awaitingResult get() = owner.pending
     init {
         content { ModelSettingsScreen(owner, (context.resources.displayMetrics.heightPixels / context.resources.displayMetrics.density * .85f).dp,

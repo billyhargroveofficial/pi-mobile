@@ -13,23 +13,39 @@ object ChatFixture {
     class Transport : ChatSession.Transport {
         var writes = 0
         var failWrite = false
+        var prompting: (() -> Unit)? = null
+        val sentPrompts = mutableListOf<Pair<String, List<ImagePayload>>>()
         var reads = 0
+        var prompts = 0
+        var aborts = 0
+        var configurationId: String? = "auto"
+        var configurationFailure: Exception? = null
+        val configurations = mutableListOf<List<String?>>()
+        val commands = mutableListOf<Pair<String, JSONObject>>()
+        var liveRequests: Set<String>? = null
+        override fun pendingRequests(session: String) = liveRequests
         var savedViewport: JSONObject? = null
+        var viewportReads = 0
         override fun connection() = ConnectionState.CONNECTED
         override fun configuration(session: String): JSONObject? = null
-        override fun viewport(session: String): JSONObject? = savedViewport
+        override fun viewport(session: String): JSONObject? { viewportReads++; return savedViewport }
         override fun saveViewport(session: String, key: String, offset: Int, follow: Boolean) {
             savedViewport = JSONObject().put("anchor", key).put("offset", offset).put("follow", follow)
         }
         override fun subscribe(session: String) {}
         override fun prompt(session: String, text: String, payloads: List<ImagePayload>, behavior: CommandBuilder.Behavior): String? {
-            writes++; return if (failWrite) null else "request-$writes"
+            prompts++; writes++; sentPrompts.add(text to payloads.toList()); prompting?.invoke()
+            return if (failWrite) null else "request-$writes"
         }
-        override fun abort(session: String): String { writes++; return "abort-$writes" }
-        override fun configure(session: String, provider: String?, model: String?, effort: String?, tier: String?): String { writes++; return "config-$writes" }
-        override fun read(session: String, kind: String, args: JSONObject): String { reads++; return "read-$reads" }
+        override fun abort(session: String): String { aborts++; writes++; return "abort-$writes" }
+        override fun configure(session: String, provider: String?, model: String?, effort: String?, tier: String?): String? {
+            writes++; configurations.add(listOf(provider, model, effort, tier)); configurationFailure?.let { throw it }
+            return if (configurationId == "auto") "config-$writes" else configurationId
+        }
+        override fun read(session: String, kind: String, args: JSONObject): String { commands.add(kind to JSONObject(args.toString())); reads++; return "read-$reads" }
     }
-    @JvmStatic fun install(activity: ChatActivity, session: String, readOnly: Boolean, initial: List<ChatMessage>): ChatSession {
+    @JvmStatic @JvmOverloads fun install(activity: ChatActivity, session: String, readOnly: Boolean, initial: List<ChatMessage>,
+        persist: (List<ChatMessage>) -> Unit = {}): ChatSession {
         // Cancel the activity's asynchronous real-cache restore before replacing its owner.
         // Otherwise a late restore can overwrite a synthetic timeline halfway through a UI test.
         PiApp.get(activity).client().clearListener(activity)
@@ -37,7 +53,7 @@ object ChatFixture {
         val discovery = ChatActivity::class.java.getDeclaredField("orchestration").apply { isAccessible = true }.get(activity) as ru.billyhargrove.pimobile.ui.OrchestrationEntry
         discovery.stop(); discovery.render(JSONObject())
         val effect = ChatActivity::class.java.getDeclaredMethod("effect", ChatSession.Effect::class.java).apply { isAccessible = true }
-        val chat = ChatSession(session, "Проверка дизайна", readOnly, Transport(), initial, {}, { effect.invoke(activity, it) })
+        val chat = ChatSession(session, "Проверка дизайна", readOnly, Transport(), initial, persist, { effect.invoke(activity, it) })
         chat.onSnapshot(Snapshot(session, SessionStatus.IDLE, true, emptyList(), false))
         val field = ChatActivity::class.java.getDeclaredField("chatState").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST") val state = field.get(activity) as MutableState<ChatSession?>

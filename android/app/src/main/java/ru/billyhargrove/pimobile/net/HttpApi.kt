@@ -21,15 +21,24 @@ class HttpApi(private val client: OkHttpClient) {
         }
     }
     @Throws(Exception::class) fun transcribe(baseUrl: String, token: String, audio: File): String {
-        if (!audio.isFile || audio.length() < 3200 || audio.length() > 16000L * 2 * 600)
+        return transcription(baseUrl, token, audio).execute()
+    }
+    internal interface Transcription { fun execute(): String; fun cancel() }
+    /** Same blocking wire policy, with cancellation scoped to this one request. */
+    internal fun transcription(baseUrl: String, token: String, audio: File): Transcription {
+        if (!audio.isFile || !PcmAudio.validSize(audio.length()))
             throw IOException("Recording must be between 0.1 seconds and 10 minutes")
         val request = Request.Builder().url(EndpointPolicy.apiUrl(baseUrl, "/api/transcribe")).header("Authorization", "Bearer $token")
-            .header("X-Audio-Sample-Rate", "16000").post(audio.asRequestBody("application/octet-stream".toMediaType())).build()
+            .header("X-Audio-Sample-Rate", PcmAudio.SAMPLE_RATE.toString()).post(audio.asRequestBody("application/octet-stream".toMediaType())).build()
         val voiceClient = client.newBuilder().writeTimeout(90, TimeUnit.SECONDS).readTimeout(590, TimeUnit.SECONDS).callTimeout(600, TimeUnit.SECONDS).build()
-        return voiceClient.newCall(request).execute().use { response ->
-            val value = bodyString(response)
-            if (!response.isSuccessful) throw failure(response, value)
-            JSONObject(value).getString("text")
+        val call = voiceClient.newCall(request)
+        return object : Transcription {
+            override fun cancel() = call.cancel()
+            override fun execute(): String = call.execute().use { response ->
+                val value = bodyString(response)
+                if (!response.isSuccessful) throw failure(response, value)
+                JSONObject(value).getString("text")
+            }
         }
     }
     @Throws(IOException::class) fun fetchCatalog(baseUrl: String, token: String): Catalog =

@@ -12,9 +12,9 @@ const sourceContractPeers={
  'presentation-only':new Set(['presentation-only','platform-free-state','pure-projection']),
 };
 const sourceContracts={
- 'platform-free-state':{deny:['android','androidx',`${namespace}.net`,`${namespace}.store`,`${namespace}.media`,`${namespace}.ui`],allow:['androidx.compose.runtime']},
- 'pure-projection':{deny:['android','androidx','kotlinx.coroutines',`${namespace}.net`,`${namespace}.store`,`${namespace}.media`,`${namespace}.ui`]},
- 'presentation-only':{deny:['android','java.net','okhttp3',`${namespace}.net`,`${namespace}.store`],allow:['android.graphics.Rect',`${namespace}.net.MediaLoader`]},
+ 'platform-free-state':{deny:['android','androidx','java.net','okhttp3',`${namespace}.net`,`${namespace}.store`,`${namespace}.media`,`${namespace}.ui`],allow:['androidx.compose.runtime']},
+ 'pure-projection':{deny:['android','androidx','java.net','okhttp3','kotlinx.coroutines',`${namespace}.net`,`${namespace}.store`,`${namespace}.media`,`${namespace}.ui`]},
+ 'presentation-only':{deny:['android','java.net','java.io','okhttp3',`${namespace}.net`,`${namespace}.store`,`${namespace}.media`,`${namespace}.ui.ImageViewer`],allow:[`${namespace}.media.Attachment`,'android.graphics.Rect',`${namespace}.net.MediaLoader`]},
 };
 
 // Skip comments/literals, but retain Kotlin interpolation expressions as code.
