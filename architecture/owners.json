@@ -17,7 +17,8 @@
       "features/catalog/UsageScreen",
       "features/catalog/ArchiveProjection",
       "features/catalog/ArchiveSession",
-      "features/catalog/ArchiveScreen"
+      "features/catalog/ArchiveScreen",
+      "features/catalog/ComputerPicker"
     ],
     "chat": [
       "ChatActivity",
@@ -129,6 +130,8 @@
     "features/catalog/ArchiveProjection": "pure-projection",
     "features/catalog/ArchiveSession": "platform-free-state",
     "features/catalog/ArchiveScreen": "presentation-only",
+    "features/catalog/ComputerPicker": "presentation-only",
+    "core/ConnectionProfile": "pure-projection",
     "features/chat/ModelCapabilities": "pure-projection",
     "features/chat/ModelSettingsSession": "platform-free-state",
     "features/chat/QuickEffortSession": "platform-free-state",
@@ -174,6 +177,7 @@
       "ChatMessage",
       "CommandBuilder",
       "ConnectionState",
+      "ConnectionProfile",
       "ConversationFrames",
       "DurationText",
       "EndpointPolicy",
@@ -223,7 +227,8 @@
       "PendingMessages",
       "PendingMessageCodec",
       "SecureTokenStore",
-      "SettingsStore"
+      "SettingsStore",
+      "ConnectionProfiles"
     ],
     "media": [
       "Attachment",

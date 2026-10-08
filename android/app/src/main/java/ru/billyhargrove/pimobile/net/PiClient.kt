@@ -38,6 +38,7 @@ class PiClient(private val http: OkHttpClient, private val api: HttpApi) : WebSo
     private var listener: Listener? = null
     private var baseUrl = ""
     private var token = ""
+    private var connectionScope = ConversationCache.key("", "", "connection")
     private var desiredSessionId: String? = null
     private var state = ConnectionState.IDLE
     private var stateDetail = ""
@@ -114,9 +115,12 @@ class PiClient(private val http: OkHttpClient, private val api: HttpApi) : WebSo
         if (this.baseUrl != nextUrl || this.token != nextToken) {
             subscriptionGeneration++; subscriptionReady = false; desiredSessionId = null
             lastSnapshot = null; configuration = null; configurationSessionId = ""
+            catalog = Catalog.empty(); listener?.onCatalog(catalog)
         }
         failAllPending("Connection replaced before acknowledgment")
-        this.baseUrl = nextUrl; this.token = nextToken; authRejected = false; attempt = 0; shuttingDown = false
+        this.baseUrl = nextUrl; this.token = nextToken
+        connectionScope = ConversationCache.key(nextUrl, nextToken, "connection")
+        authRejected = false; attempt = 0; shuttingDown = false
         cancelReconnect(); closeSocket(); setState(ConnectionState.CONNECTING, this.baseUrl); openSocket()
     }
     fun disconnect() {
@@ -160,6 +164,8 @@ class PiClient(private val http: OkHttpClient, private val api: HttpApi) : WebSo
     fun catalog() = catalog
     fun lastSnapshot() = lastSnapshot
     fun baseUrl() = baseUrl
+    /** Local credential identity; never returns the token and never authorizes a server request. */
+    fun connectionScope() = connectionScope
     fun api() = api
     fun http() = http
     private fun openSocket() { socket = http.newWebSocket(Request.Builder().url(EndpointPolicy.wsUrl(baseUrl)).header("Authorization", "Bearer $token").build(), this) }

@@ -14,6 +14,12 @@ class CatalogSession(private val transport: Transport, initialUrl: String, confi
         fun connect(url: String, typedToken: String)
         fun disconnect()
         fun hasToken(): Boolean
+        fun hasTokenFor(url: String): Boolean = hasToken()
+        fun computers(): List<ConnectionProfile> = emptyList()
+        fun activeComputerId(): String? = null
+        fun saveComputer(url: String, name: String, token: String): ConnectionProfile? = null
+        fun selectComputer(id: String): ConnectionProfile = error("Computer no longer exists")
+        fun forgetComputer(id: String) {}
         fun health(url: String, result: (Result<String>) -> Unit)
         fun refresh(result: (Result<Catalog>) -> Unit)
         fun command(session: String, kind: String, args: JSONObject): String?
@@ -23,6 +29,7 @@ class CatalogSession(private val transport: Transport, initialUrl: String, confi
     sealed interface Effect {
         data class OpenChat(val id: String, val title: String) : Effect
         data object OpenHistory : Effect
+        data object ComputerChanged : Effect
         data class Usage(val connected: Boolean) : Effect
     }
     enum class Screen { Catalog, Settings }
@@ -40,8 +47,25 @@ class CatalogSession(private val transport: Transport, initialUrl: String, confi
         } ?: "Host not configured"
     } catch (_: Exception) { "Host not configured" }
     var typedToken by mutableStateOf("")
-    var hasStoredToken by mutableStateOf(transport.hasToken()); private set
-    var catalog by mutableStateOf(transport.catalog()); private set
+    var computers by mutableStateOf(transport.computers()); private set
+    var activeComputerId by mutableStateOf(transport.activeComputerId()); private set
+    var computerName by mutableStateOf(computers.find { it.id == activeComputerId }?.name.orEmpty())
+    var computerPicker by mutableStateOf(false); private set
+    val hasStoredToken get() = transport.hasTokenFor(url)
+    val editedComputer get() = computers.find { saved ->
+        try { EndpointPolicy.normalize(saved.baseUrl) == EndpointPolicy.normalize(url) } catch (_: Exception) { false }
+    }
+    fun showComputers() { computerPicker = true; show("", false) }
+    fun hideComputers() { computerPicker = false }
+    fun addComputer() {
+        computerPicker = false; url = ""; computerName = ""; typedToken = ""; screen = Screen.Settings; show("", false)
+    }
+    fun editComputer(id: String) {
+        val saved = computers.find { it.id == id } ?: return
+        computerPicker = false; url = saved.baseUrl; computerName = saved.name; typedToken = ""; screen = Screen.Settings; show("", false)
+    }
+    private fun reloadComputers() { computers = transport.computers(); activeComputerId = transport.activeComputerId() }
+    var catalog by mutableStateOf(if (transport.hasToken()) transport.catalog() else Catalog.empty()); private set
     var rows by mutableStateOf(SessionGrouping.build(catalog)); private set
     var connection by mutableStateOf(ConnectionState.IDLE); private set
     var connectionDetail by mutableStateOf(""); private set
@@ -55,17 +79,62 @@ class CatalogSession(private val transport: Transport, initialUrl: String, confi
     private var connectRequested = false
     private var launchId: String? = null; private var launchTitle = ""; private var launchRequest: String? = null
     private val actions = mutableMapOf<String, Action>()
-    fun start() { active = true; onCatalog(transport.catalog()); effect(Effect.Usage(connection == ConnectionState.CONNECTED)) }
+    fun start() {
+        active = true
+        // Forgetting the active profile must not resurrect its last client catalog on return/recreation.
+        onCatalog(if (transport.hasToken()) transport.catalog() else Catalog.empty())
+        effect(Effect.Usage(connection == ConnectionState.CONNECTED))
+    }
     fun stop() { active = false; generation++; healthBusy = false; refreshBusy = false; effect(Effect.Usage(false)) }
     fun close() { stop(); transport.cancelTimeout(); typedToken = ""; actions.clear() }
     fun connect() {
         val value = url.trim(); val result = EndpointPolicy.validate(value, BuildConfig.DEBUG)
         if (result != EndpointPolicy.Result.OK) { show(PiClient.describeResult(result), true); return }
         val typed = typedToken.trim()
-        if (typed.isEmpty() && !transport.hasToken()) { show("Enter your access token", true); return }
-        generation++; healthBusy = false; refreshBusy = false
-        try { connectRequested = true; connectionEndpoint = value; transport.connect(value, typed); typedToken = ""; hasStoredToken = transport.hasToken(); show("", false) }
-        catch (error: Exception) { connectRequested = false; show(error.message ?: "Could not save connection", true) }
+        if (typed.isEmpty() && !transport.hasTokenFor(value)) { show("Enter an access token for this computer", true); return }
+        try {
+            // Persist first: encryption/save failure must not retire the working connection.
+            val saved = transport.saveComputer(value, computerName, typed)
+            reloadComputers(); retireComputer()
+            connectionEndpoint = saved?.baseUrl ?: value; url = connectionEndpoint
+            if (saved != null) computerName = saved.name
+            connectRequested = true; typedToken = ""; show("", false)
+            transport.connect(connectionEndpoint, typed)
+        } catch (error: Exception) { reloadComputers(); connectRequested = false; show(error.message ?: "Could not save connection", true) }
+    }
+    fun switchComputer(id: String) {
+        val saved = computers.find { it.id == id } ?: return
+        if (id == activeComputerId && connection == ConnectionState.CONNECTED) { computerPicker = false; return }
+        try {
+            val selected = transport.selectComputer(id)
+            reloadComputers(); retireComputer()
+            url = selected.baseUrl; computerName = selected.name; typedToken = ""; connectionEndpoint = selected.baseUrl
+            connectRequested = true; computerPicker = false; show("", false)
+            transport.connect(selected.baseUrl, "")
+        } catch (error: Exception) { reloadComputers(); connectRequested = false; show(error.message ?: "Could not switch computer", true) }
+    }
+    fun requestForgetComputer(id: String) {
+        val saved = computers.find { it.id == id } ?: return
+        confirmation = Confirmation("Forget computer?", "${saved.name}\n\nRemove its saved address and token from this device. Pi work and conversation history on the computer will not be changed.", "Forget", true) {
+            try {
+                val wasActive = id == activeComputerId
+                transport.forgetComputer(id); reloadComputers()
+                if (wasActive) { retireComputer(); connectionEndpoint = ""; transport.disconnect() }
+                if (url == saved.baseUrl) {
+                    val active = computers.find { it.id == activeComputerId }
+                    url = active?.baseUrl.orEmpty(); computerName = active?.name.orEmpty(); typedToken = ""
+                }
+                show("Computer forgotten from this device", false)
+            } catch (error: Exception) { show(error.message ?: "Could not forget computer", true) }
+        }
+    }
+    private fun retireComputer() {
+        generation++; healthBusy = false; refreshBusy = false; connectRequested = false; confirmation = null
+        clearLaunch()
+        val previous = actions.values.toList(); actions.clear()
+        catalog = Catalog.empty(); rows = emptyList()
+        effect(Effect.Usage(false)); effect(Effect.ComputerChanged)
+        previous.forEach { it.failure("Computer changed; result on the previous computer is unknown. Check it before retrying.") }
     }
     fun disconnect() { generation++; connectRequested = false; transport.disconnect(); show("", false) }
     fun health() {

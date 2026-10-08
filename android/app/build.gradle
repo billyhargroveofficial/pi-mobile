@@ -12,11 +12,14 @@ android {
         applicationId 'ru.billyhargrove.pimobile'
         minSdk 26
         targetSdk 35
-        versionCode 15
-        versionName '0.6.008'
+        versionCode 16
+        versionName '0.6.009'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         // No secrets, no tokens, no URLs are baked into BuildConfig.
     }
+
+    // Allows instrumentation against the actual non-debuggable release APK, not a renamed debug artifact.
+    testBuildType providers.gradleProperty('piTestBuildType').getOrElse('debug')
 
     buildTypes {
         debug {

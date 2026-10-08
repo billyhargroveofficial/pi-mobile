@@ -42,8 +42,15 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
         @JvmStatic fun intent(context: Context, sessionId: String, title: String, readOnly: Boolean) =
             Intent(context, ChatActivity::class.java).putExtra("session_id", sessionId)
                 .putExtra("session_title", title).putExtra("read_only", readOnly)
+                .putExtra("connection_scope", PiApp.get(context).settings().connectionScope())
     }
     private lateinit var app: PiApp
+    private var boundScope = ""
+    private var boundBase = ""
+    private var boundToken = ""
+    private fun currentComputer() = boundScope == app.settings().connectionScope()
+    private fun currentClient() = currentComputer() && boundScope == app.client().connectionScope()
+    private fun acceptFrame() = currentComputer() && (app.client().state() != ConnectionState.CONNECTED || currentClient())
     private lateinit var root: ComposeView
     private val chatState = mutableStateOf<ChatSession?>(null)
     private val chat get() = requireNotNull(chatState.value)
@@ -70,21 +77,28 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         app = PiApp.get(this)
+        val restoredScope = state?.getString("connection_scope") ?: intent.getStringExtra("connection_scope")
+        if (state != null && restoredScope == null && app.settings().profiles().size > 1) { finish(); return }
+        boundScope = restoredScope ?: app.settings().connectionScope()
+        if (!currentComputer()) { finish(); return }
+        boundBase = app.settings().baseUrl(); boundToken = app.settings().token()
         val session = intent.getStringExtra("session_id").orEmpty()
-        val pending = PendingMessages(this, app.settings().baseUrl(), session)
+        val pending = PendingMessages(this, boundBase, session)
         val client = app.client()
         val transport = object : ChatSession.Transport {
-            override fun catalog() = client.catalog()
-            override fun connection() = client.state()
-            override fun configuration(session: String) = client.configuration(session)
-            override fun viewport(session: String) = client.cachedViewport(session)
-            override fun saveViewport(session: String, key: String, offset: Int, follow: Boolean) = client.saveViewport(session, key, offset, follow)
-            override fun subscribe(session: String) = client.subscribe(session)
-            override fun prompt(session: String, text: String, payloads: List<ImagePayload>, behavior: CommandBuilder.Behavior) = client.sendPrompt(session, text, payloads, behavior)
-            override fun abort(session: String) = client.sendAbort(session)
-            override fun configure(session: String, provider: String?, model: String?, effort: String?, tier: String?) = client.configure(session, provider, model, effort, tier)
-            override fun read(session: String, kind: String, args: JSONObject) = client.readCommand(session, kind, args)
-            override fun pendingRequests(session: String) = client.pendingRequestIds(session).toSet()
+            override fun catalog() = if (currentClient()) client.catalog() else Catalog.empty()
+            override fun connection() = if (currentClient()) client.state() else ConnectionState.DISCONNECTED
+            override fun configuration(session: String) = if (currentClient()) client.configuration(session) else null
+            override fun viewport(session: String) = if (currentClient()) client.cachedViewport(session) else null
+            override fun saveViewport(session: String, key: String, offset: Int, follow: Boolean) { if (currentClient()) client.saveViewport(session, key, offset, follow) }
+            override fun subscribe(session: String) { if (currentClient()) client.subscribe(session) }
+            override fun prompt(session: String, text: String, payloads: List<ImagePayload>, behavior: CommandBuilder.Behavior) =
+                if (currentClient()) client.sendPrompt(session, text, payloads, behavior) else null
+            override fun abort(session: String) = if (currentClient()) client.sendAbort(session) else null
+            override fun configure(session: String, provider: String?, model: String?, effort: String?, tier: String?) =
+                if (currentClient()) client.configure(session, provider, model, effort, tier) else null
+            override fun read(session: String, kind: String, args: JSONObject) = if (currentClient()) client.readCommand(session, kind, args) else null
+            override fun pendingRequests(session: String) = if (currentClient()) client.pendingRequestIds(session).toSet() else emptySet()
         }
         chatState.value = ChatSession(session, intent.getStringExtra("session_title").orEmpty(),
             intent.getBooleanExtra("read_only", false), transport, pending.load(), pending::save, ::effect)
@@ -101,25 +115,27 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
         val speech = SpeechTranscriber(app.api())
         transcription = TranscriptionSession(owner.readOnly, object : TranscriptionSession.Port {
             override fun start(file: java.io.File, done: (Result<String>) -> Unit): TranscriptionSession.Control {
-                val job = speech.start(app.settings().baseUrl(), app.settings().token(), file, done)
+                check(currentComputer()) { "Computer changed; return to the catalog" }
+                val job = speech.start(boundBase, boundToken, file, done)
                 return object : TranscriptionSession.Control { override fun cancel() = job.cancel() }
             }
             override fun discard(file: java.io.File) { file.delete() }
-        }, owner::transcriptionChanged, owner::dismissNotice, owner::insertDictation, ::notice, { !isFinishing && !isDestroyed })
+        }, owner::transcriptionChanged, owner::dismissNotice, owner::insertDictation, ::notice, { !isFinishing && !isDestroyed && currentComputer() })
         state?.getString("composer_text")?.let { text ->
             chat.composer = TextFieldValue(text, TextRange(state.getInt("composer_selection_start", text.length).coerceIn(0, text.length),
                 state.getInt("composer_selection_end", text.length).coerceIn(0, text.length)))
         }
         behavior = app.settings().behavior()
         orchestration = OrchestrationEntry {
-            if (app.settings().hasToken()) app.api().fetchOrchestration(app.settings().baseUrl(), app.settings().token(), session) else null
+            if (currentComputer() && boundToken.isNotEmpty()) app.api().fetchOrchestration(boundBase, boundToken, session) else null
         }
+        val media = app.mediaLoader() // Freeze this window's loader to its original computer.
         root = ComposeView(this).apply {
             setContent { PiTheme {
                 chatState.value?.let { current ->
-                    ChatScreen(current, transcriptList, app.mediaLoader(), behavior,
+                    ChatScreen(current, transcriptList, media, behavior,
                         { behavior = it; app.settings().setBehavior(it) }, orchestration.snapshot,
-                        { kind, id, title -> startActivity(OrchestrationActivity.intent(this@ChatActivity, session, kind, id, title)) },
+                        { kind, id, title -> if (currentComputer()) startActivity(OrchestrationActivity.intent(this@ChatActivity, session, kind, id, title)) },
                         { finish() }, { imagePicker.launch(arrayOf("*/*")) }, ::requestDictation, ::quickEffort, ::onDocument)
                 }
             } }
@@ -134,20 +150,28 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
         back.duration = enter.duration
         window.returnTransition = back
     }
-    override fun onStart() { super.onStart(); app.client().setListener(this); chat.start(); orchestration.start() }
+    override fun onStart() {
+        super.onStart()
+        if (chatState.value == null || !currentComputer()) { finish(); return }
+        app.client().setListener(this); chat.start(); orchestration.start()
+    }
     override fun onSaveInstanceState(state: Bundle) {
+        state.putString("connection_scope", boundScope)
+        if (chatState.value == null) { super.onSaveInstanceState(state); return }
         state.putString("composer_text", chat.composer.text)
         state.putInt("composer_selection_start", chat.composer.selection.start)
         state.putInt("composer_selection_end", chat.composer.selection.end)
         super.onSaveInstanceState(state)
     }
     override fun onStop() {
+        if (chatState.value == null) { super.onStop(); return }
         orchestration.stop(); dictation?.cancel(); dictation = null
         chat.items.getOrNull(transcriptList.firstVisibleItemIndex)?.let { chat.saveViewport(it.row.key, -transcriptList.firstVisibleItemScrollOffset) }
         app.client().clearListener(this)
         super.onStop()
     }
     override fun onDestroy() {
+        if (chatState.value == null) { super.onDestroy(); return }
         chat.closeViewport()
         chat.closeConfiguration()
         chat.closeControls()
@@ -250,17 +274,21 @@ class ChatActivity : AppCompatActivity(), PiClient.Listener {
         }, ::notice)
     }
     private fun notice(text: String) { chat.showNotice(text) }
-    override fun onConnectionState(state: ConnectionState, detail: String) = chat.onConnectionState(state, detail)
-    override fun onCatalog(catalog: Catalog) = chat.onCatalog(catalog)
-    override fun onSnapshot(snapshot: Snapshot) = chat.onSnapshot(snapshot)
-    override fun onMessages(update: MessagesUpdate) = chat.onMessages(update)
-    override fun onAck(ack: Ack) = chat.onAck(ack)
+    override fun onConnectionState(state: ConnectionState, detail: String) {
+        if (acceptFrame()) chat.onConnectionState(state, detail)
+        else chat.onConnectionState(ConnectionState.DISCONNECTED, "Computer changed; return to the catalog")
+    }
+    override fun onCatalog(catalog: Catalog) { if (acceptFrame()) chat.onCatalog(catalog) }
+    override fun onSnapshot(snapshot: Snapshot) { if (acceptFrame()) chat.onSnapshot(snapshot) }
+    override fun onMessages(update: MessagesUpdate) { if (acceptFrame()) chat.onMessages(update) }
+    override fun onAck(ack: Ack) { if (acceptFrame()) chat.onAck(ack) }
     override fun onConfiguration(id: String, value: JSONObject) {
+        if (!acceptFrame()) return
         chat.onConfiguration(id, value)
         if (id == chat.sessionId) configurationPanels.update(value)
     }
-    override fun onTimelineMeta(frame: JSONObject) = chat.onTimelineMeta(frame)
-    override fun onData(request: String, id: String, data: JSONObject) = chat.onData(request, id, data)
-    override fun onCommandUncertain(request: String, id: String, reason: String) = chat.onCommandUncertain(request, id, reason)
-    override fun onProtocolError(message: String) = chat.onProtocolError(message)
+    override fun onTimelineMeta(frame: JSONObject) { if (acceptFrame()) chat.onTimelineMeta(frame) }
+    override fun onData(request: String, id: String, data: JSONObject) { if (acceptFrame()) chat.onData(request, id, data) }
+    override fun onCommandUncertain(request: String, id: String, reason: String) { if (acceptFrame()) chat.onCommandUncertain(request, id, reason) }
+    override fun onProtocolError(message: String) { if (acceptFrame()) chat.onProtocolError(message) }
 }

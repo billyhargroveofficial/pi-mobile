@@ -57,6 +57,13 @@ public class EndpointPolicyTest {
     }
 
     @Test
+    public void outOfRangePortsCannotBeSavedAndCrashALaterSocket() {
+        assertEquals(EndpointPolicy.Result.MALFORMED, EndpointPolicy.validate("https://example.com:0", true));
+        assertEquals(EndpointPolicy.Result.MALFORMED, EndpointPolicy.validate("https://example.com:65536", true));
+        assertEquals(EndpointPolicy.Result.OK, EndpointPolicy.validate("https://example.com:65535", false));
+    }
+
+    @Test
     public void normalizeCanonicalisesTheBaseUrl() {
         assertEquals("https://billyhargrove.ru", EndpointPolicy.normalize("https://billyhargrove.ru/"));
         assertEquals("https://billyhargrove.ru", EndpointPolicy.normalize("https://BILLYHARGROVE.ru:443"));

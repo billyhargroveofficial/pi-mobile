@@ -24,25 +24,33 @@ class OrchestrationActivity : AppCompatActivity() {
             Intent(c, OrchestrationActivity::class.java).putExtra("session", session)
                 .putExtra("workflow", if (kind == "workflow") id else "")
                 .putExtra("agent", if (kind == "agent") id else "")
-                .putExtra("title", title)
+                .putExtra("title", title).putExtra("connection_scope", PiApp.get(c).settings().connectionScope())
     }
     private val handler = Handler(Looper.getMainLooper())
     private val transcriptList = LazyListState()
     private lateinit var owner: OrchestrationSession
+    private var boundScope = ""
+    private fun openForBoundComputer(next: () -> Intent) {
+        if (boundScope == PiApp.get(this).settings().connectionScope()) startActivity(next()) else finish()
+    }
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         val app = PiApp.get(this)
+        val restoredScope = state?.getString("connection_scope") ?: intent.getStringExtra("connection_scope")
+        if (state != null && restoredScope == null && app.settings().profiles().size > 1) { finish(); return }
+        boundScope = restoredScope ?: app.settings().connectionScope()
+        if (boundScope != app.settings().connectionScope()) { finish(); return }
+        val base = app.settings().baseUrl(); val token = app.settings().token()
+        val media = app.mediaLoader()
         val target = OrchestrationSession.Target(intent.getStringExtra("session").orEmpty(),
             intent.getStringExtra("workflow").orEmpty(), intent.getStringExtra("agent").orEmpty(),
             intent.getStringExtra("parentAgent"))
         val transport = object : OrchestrationSession.Transport {
             private var poll: Runnable? = null
-            override fun available() = app.settings().hasToken()
+            override fun available() = token.isNotEmpty() && boundScope == app.settings().connectionScope()
             override fun fetch(target: OrchestrationSession.Target, before: Long, result: (Result<JSONObject>) -> Unit) {
                 // Capture connection credentials before leaving the main thread; never expose them to feature state.
-                val base = app.settings().baseUrl()
-                val token = app.settings().token()
                 AppExecutors.io().execute {
                     val value = runCatching {
                         if (target.agent.isEmpty()) app.api().fetchOrchestration(base, token, target.session)
@@ -59,11 +67,11 @@ class OrchestrationActivity : AppCompatActivity() {
         }
         owner = OrchestrationSession(target, transport) { !transcriptList.canScrollForward && !transcriptList.isScrollInProgress }
         val root = ComposeView(this).apply { setContent { PiTheme {
-            OrchestrationScreen(owner, intent.getStringExtra("title").orEmpty(), transcriptList, app.mediaLoader(),
+            OrchestrationScreen(owner, intent.getStringExtra("title").orEmpty(), transcriptList, media,
                 onBack = { finish() },
-                onChildren = { startActivity(intent(this@OrchestrationActivity, target.session, "", "", "Child agents").putExtra("parentAgent", target.agent)) },
-                onWorkflow = { flow -> startActivity(intent(this@OrchestrationActivity, target.session, "workflow", flow.optString("id"), flow.optString("title", "Workflow"))) },
-                onAgent = { agent -> startActivity(intent(this@OrchestrationActivity, target.session, "agent", agent.optString("id"), agent.optString("name", "Agent")).putExtra("agentSummary", agent.toString())) })
+                onChildren = { openForBoundComputer { intent(this@OrchestrationActivity, target.session, "", "", "Child agents").putExtra("parentAgent", target.agent) } },
+                onWorkflow = { flow -> openForBoundComputer { intent(this@OrchestrationActivity, target.session, "workflow", flow.optString("id"), flow.optString("title", "Workflow")) } },
+                onAgent = { agent -> openForBoundComputer { intent(this@OrchestrationActivity, target.session, "agent", agent.optString("id"), agent.optString("name", "Agent")).putExtra("agentSummary", agent.toString()) } })
         } } }
         setContentView(root)
         // Compose owns the navigation-bar spacer; do not add a second bottom inset to the host View.
@@ -72,8 +80,13 @@ class OrchestrationActivity : AppCompatActivity() {
             owner.renderAgent(JSONObject().put("agent", JSONObject(intent.getStringExtra("agentSummary")!!)).put("messages", JSONArray()), false)
         } catch (_: JSONException) { }
     }
-    override fun onStart() { super.onStart(); owner.start() }
-    override fun onStop() { owner.stop(); super.onStop() }
+    override fun onStart() {
+        super.onStart()
+        if (!::owner.isInitialized || boundScope != PiApp.get(this).settings().connectionScope()) { finish(); return }
+        owner.start()
+    }
+    override fun onSaveInstanceState(state: Bundle) { state.putString("connection_scope", boundScope); super.onSaveInstanceState(state) }
+    override fun onStop() { if (::owner.isInitialized) owner.stop(); super.onStop() }
 
     // Existing read-only fixture/facade entry points; no duplicate state or fetching policy.
     fun stopUpdates() = owner.stop()

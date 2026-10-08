@@ -22,7 +22,10 @@ class ImageViewer : AppCompatDialogFragment() {
             var host = context
             while (host !is AppCompatActivity && host is ContextWrapper && host.baseContext !== host) host = host.baseContext
             if (host !is AppCompatActivity) return
-            ImageViewer().apply { arguments = Bundle().apply { putString("url", url.orEmpty()) }; localBitmap = local }
+            val currentScope = PiApp.get(context).settings().connectionScope()
+            val sourceScope = host.intent.getStringExtra("connection_scope") ?: currentScope
+            if (sourceScope != currentScope) return // A still-visible old window must not load its URL with new credentials.
+            ImageViewer().apply { arguments = Bundle().apply { putString("url", url.orEmpty()); putString("connection_scope", sourceScope) }; localBitmap = local }
                 .show(host.supportFragmentManager, "image-viewer")
         }
     }
@@ -40,6 +43,12 @@ class ImageViewer : AppCompatDialogFragment() {
         root.addView(close, FrameLayout.LayoutParams(size, size, Gravity.TOP or Gravity.START).apply { setMargins(size / 3, size / 3, 0, 0) })
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets -> val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars()); view.setPadding(bars.left, bars.top, bars.right, bars.bottom); insets }
         dialog.setContentView(root)
+        val expectedScope = requireArguments().getString("connection_scope")
+        if ((expectedScope == null && PiApp.get(context).settings().profiles().size > 1) ||
+            (expectedScope != null && expectedScope != PiApp.get(context).settings().connectionScope())) {
+            error.text = "Computer changed. Open the image again from its computer."; error.visibility = View.VISIBLE
+            return dialog
+        }
         localBitmap?.let(image::setImageBitmap) ?: PiApp.get(context).mediaLoader().load(requireArguments().getString("url", ""), object : MediaLoader.Callback {
             override fun onLoaded(resolvedUrl: String, bitmap: Bitmap) { if (isAdded) image.setImageBitmap(bitmap) }
             override fun onFailed(resolvedUrl: String, message: String) { if (isAdded) { error.text = message; error.visibility = View.VISIBLE } }

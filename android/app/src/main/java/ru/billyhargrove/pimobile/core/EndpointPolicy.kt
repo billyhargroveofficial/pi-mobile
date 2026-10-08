@@ -17,6 +17,7 @@ object EndpointPolicy {
         val scheme = uri.scheme?.lowercase(Locale.ROOT).orEmpty()
         if (scheme != "http" && scheme != "https") return Result.UNSUPPORTED_SCHEME
         if (uri.host.isNullOrEmpty()) return Result.MISSING_HOST
+        if (uri.port == 0 || uri.port > 65535) return Result.MALFORMED
         if (!uri.userInfo.isNullOrEmpty()) return Result.HAS_CREDENTIALS
         if (uri.query != null || uri.fragment != null) return Result.HAS_QUERY_OR_FRAGMENT
         if (scheme == "http" && (!debuggable || uri.host.lowercase(Locale.ROOT) !in DEBUG_HTTP_HOSTS)) return Result.CLEARTEXT_NOT_ALLOWED

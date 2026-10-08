@@ -1,5 +1,23 @@
 # Проверки релизов Pi Mobile
 
+## Релиз0.6.009 — release-вариант, 8 октября2026
+
+[Факты и ограничения](release-0.6.009.md):108 Node/628 release JVM PASS;
+assembleRelease/assembleReleaseAndroidTest/lintRelease PASS,0 lint errors.
+APK не debuggable, BuildConfig.DEBUG=false, без HTTP logging и debug cleartext
+exceptions; actual manifest/network policy/16KiB zipalign/certificate gate PASS.
+Переименованный debug0.6.009 APK отвергнут verifier. Старый публичный0.6.008
+установлен без clear/uninstall; upgrade на signed release сохраняет SHA256 всех10
+private files, legacy Keystore cipher/URL/outbox, затем два отдельных host tokens.
+Upgrade stages OK(1)+OK(3); full release native194 PASS/3 explicit opt-in skipped,
+OK(197 tests),857,497s. Matrix6+6+6 PASS (normal/360dp2×light/360dp1.3×dark),
+6 representative PNG просмотрены;15 captures сохранены, immutable baseline прежний.
+APK12 091 655 bytes/SHA25604f1c32bff4d17afeead1a980d68837d4ac9a7bb2d5bf3766efc6680b89a4d35,
+code16, прежний legacy certificate. Новый production signing key не создавался.
+Правило release-only записано; публикация и subsequent Brother Orca setup явно
+разрешены, Telegram credential delivery — только Billy после его отдельного согласия.
+
+
 ## Релиз0.6.008 — 8 октября2026
 
 [Изменения, измерения и ограничения](release-0.6.008.md):15 архитектурных слайсов;

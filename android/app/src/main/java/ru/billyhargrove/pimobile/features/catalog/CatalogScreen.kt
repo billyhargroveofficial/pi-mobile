@@ -6,6 +6,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.rotate
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -57,7 +58,8 @@ fun CatalogScreen(state: CatalogSession, usage: UsageCards, checkUpdates: () -> 
                     style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 else {
                     // Connection belongs to HOST identity, not the right-hand action cluster.
-                    Row(tag("hostIdentity").weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(tag("hostIdentity").weight(1f).heightIn(min = 48.dp).clickable(role = Role.Button, onClick = state::showComputers)
+                        .semantics { contentDescription = "Switch computer" }, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     val connectionInk = Color(StatusUi.connectionDotColor(LocalContext.current, state.connection))
                     val connectionDescription = StatusUi.connectionLabel(LocalContext.current, state.connection)
                     val statusModifier = tag("connectionIndicator").size(16.dp).semantics {
@@ -79,6 +81,7 @@ fun CatalogScreen(state: CatalogSession, usage: UsageCards, checkUpdates: () -> 
                     }
                     Text(state.hostLabel(), tag("mainHostTitle").weight(1f), style = MaterialTheme.typography.titleLarge,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Icon(painterResource(R.drawable.ic_chevron), null, Modifier.size(14.dp).rotate(90f), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     // Two equally sized 48dp targets / 22dp glyph boxes on one 4dp rhythm.
                     Row(tag("mainHeaderActions"), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -136,6 +139,8 @@ fun CatalogScreen(state: CatalogSession, usage: UsageCards, checkUpdates: () -> 
         }
         }
     }
+    if (state.computerPicker) ComputerPicker(state.computers, state.activeComputerId, state.connection == ConnectionState.CONNECTED,
+        if (state.messageError) state.message else "", state::switchComputer, state::editComputer, state::addComputer, state::hideComputers)
     state.confirmation?.let { prompt -> AlertDialog(onDismissRequest = state::cancelConfirmation, title = { Text(prompt.title) }, text = { Text(prompt.message) },
         dismissButton = { TextButton(onClick = state::cancelConfirmation) { Text("Cancel") } },
         confirmButton = { TextButton(onClick = state::confirm) { Text(prompt.action, color = if (prompt.danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) } }) }
@@ -144,17 +149,27 @@ fun CatalogScreen(state: CatalogSession, usage: UsageCards, checkUpdates: () -> 
 @Composable
 private fun Settings(state: CatalogSession, prefix: String, checkUpdates: () -> Unit, appearance: () -> Unit, updateStatus: String, modifier: Modifier) {
     fun tag(name: String) = Modifier.testTag(prefix + name).semantics { testTagsAsResourceId = true }
-    var showToken by remember { mutableStateOf(false) }
+    var showToken by remember(state.url) { mutableStateOf(false) }
     Column(modifier.then(tag("connectPanel")).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Connection", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(20.dp))
             .padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextButton(onClick = state::showComputers, modifier = tag("savedComputersButton").fillMaxWidth().heightIn(min = 48.dp)) {
+                Text("Saved computers · ${state.computers.size}")
+            }
+            TextField(state.computerName, { state.computerName = it }, colors = PiFieldColors(), label = { Text("Computer name (optional)") },
+                singleLine = true, modifier = tag("computerNameInput").fillMaxWidth())
             TextField(state.url, { state.url = it }, colors = PiFieldColors(), label = { Text("Server URL") }, singleLine = true, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = tag("connectUrlInput").fillMaxWidth())
             TextField(state.typedToken, { state.typedToken = it }, colors = PiFieldColors(), label = { Text("Access token") }, placeholder = { Text(if (state.hasStoredToken) "Saved securely · leave blank to keep" else "Enter your access token") },
                 singleLine = true, visualTransformation = if (showToken) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password), modifier = tag("connectTokenInput").fillMaxWidth(),
                 trailingIcon = { TextButton(onClick = { showToken = !showToken }) { Text(if (showToken) "Hide" else "Show", fontSize = 11.sp) } })
-            Button(onClick = state::connect, enabled = state.connection !in listOf(ConnectionState.CONNECTING, ConnectionState.RECONNECTING), modifier = tag("connectButton").fillMaxWidth().heightIn(min = 56.dp)) { Text("Connect") }
+            Button(onClick = state::connect, enabled = state.connection !in listOf(ConnectionState.CONNECTING, ConnectionState.RECONNECTING), modifier = tag("connectButton").fillMaxWidth().heightIn(min = 56.dp)) { Text("Save & connect") }
+            state.editedComputer?.let { computer ->
+                TextButton(onClick = { state.requestForgetComputer(computer.id) }, modifier = tag("forgetComputerButton").fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text("Forget this computer", color = MaterialTheme.colorScheme.error)
+                }
+            }
             if (LocalConfiguration.current.fontScale > 1.5f) Column {
                 TextButton(onClick = state::health, enabled = !state.healthBusy, modifier = tag("healthCheckButton").fillMaxWidth().heightIn(min = 48.dp)) { Text(if (state.healthBusy) "Checking…" else "Check server") }
                 TextButton(onClick = state::disconnect, enabled = state.connection !in listOf(ConnectionState.IDLE, ConnectionState.DISCONNECTED), modifier = tag("disconnectButton").fillMaxWidth().heightIn(min = 48.dp)) { Text("Disconnect", color = MaterialTheme.colorScheme.error) }

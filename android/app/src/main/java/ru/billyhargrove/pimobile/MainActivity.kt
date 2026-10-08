@@ -25,12 +25,20 @@ class MainActivity : AppCompatActivity(), PiClient.Listener {
         catalogState = CatalogSession(object : CatalogSession.Transport {
             override fun catalog() = client.catalog()
             override fun hasToken() = settings.hasToken()
+            override fun hasTokenFor(url: String) = settings.hasTokenFor(url)
+            override fun computers() = settings.profiles()
+            override fun activeComputerId() = settings.activeProfileId()
+            override fun saveComputer(url: String, name: String, token: String) = settings.saveComputer(url, name, token)
+            override fun selectComputer(id: String) = settings.selectComputer(id)
+            override fun forgetComputer(id: String) = settings.forgetComputer(id)
             override fun connect(url: String, typedToken: String) {
-                val token = typedToken.ifEmpty { settings.token() }
-                if (token.isEmpty()) error("Enter your access token")
-                // Persist the encrypted token before changing the endpoint; encryption failure cannot silently reconnect with a different credential.
-                if (typedToken.isNotEmpty()) settings.setToken(typedToken)
-                settings.setBaseUrl(url); client.connect(url, token)
+                // Credentials were atomically selected/saved by the profile port, never borrowed from another address.
+                val token = settings.token()
+                if (token.isEmpty() || EndpointPolicy.normalize(url) != EndpointPolicy.normalize(settings.baseUrl())) {
+                    client.disconnect(); error("Enter an access token for this computer")
+                }
+                try { client.connect(settings.baseUrl(), token) }
+                catch (_: Exception) { client.disconnect(); error("Could not connect to this computer") }
             }
             override fun disconnect() = client.disconnect()
             override fun health(url: String, result: (Result<String>) -> Unit) {
@@ -61,6 +69,7 @@ class MainActivity : AppCompatActivity(), PiClient.Listener {
     private fun effect(effect: CatalogSession.Effect) {
         when (effect) {
             is CatalogSession.Effect.OpenChat -> startActivity(ChatActivity.intent(this, effect.id, effect.title, false))
+            CatalogSession.Effect.ComputerChanged -> { archiveSheet?.dismiss(); archiveSheet = null; app.mediaLoader().clearCache() }
             is CatalogSession.Effect.Usage -> if (effect.connected) usageCards.start(app.settings().baseUrl(), app.settings().token()) else usageCards.stop()
             CatalogSession.Effect.OpenHistory -> {
                 archiveSheet?.dismiss()
