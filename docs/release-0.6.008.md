@@ -90,3 +90,20 @@ Evidence/logs/artifact: `/Users/billy/temp/pi-mobile-release-0.6.008/`.
 Физический телефон, реальные microphone/IME/attachments/network/background recovery,
 Linux-session parity и реальные remote-image callbacks остаются приёмочными gaps.
 Synthetic API35 ARM64 и byte-preserving upgrade не заменяют эти проверки.
+
+## Публикация и завершение
+
+Stable Latest [GitHub v0.6.008](https://github.com/billyhargroveofficial/pi-mobile/releases/tag/v0.6.008),
+опубликован8 октября2026 в02:47:32 UTC. Релизный commit/tag target
+`eac32c93b22f53f105fa2788d8e5eb4303f30ef0`; main и annotated tag отправлены
+atomic push и проверены через удалённые refs. APK и SHA256SUMS.txt доступны публично.
+Оба файла повторно скачаны curl без авторизации; bytes/SHA256 совпадают с frozen
+artifact, GitHub asset digest совпадает. API latest подтверждает tag/draft=false/
+prerelease=false и uploaded assets. Полный proof находится в task folder.
+
+Перед восстановлением сети app/test force-stopped; удалены129 только созданных
+fixture guest files, более старые файлы сохранены. Исходные network settings
+восстановлены точно:airplane0/Wi-Fi1/mobile-data0. Экран1080×2400/density420/
+font1/light, animation scale1; owned emulator exit0, adb devices пуст.
+`server/Caddyfile` сохранил исходный SHA256 и остался единственным посторонним
+незакоммиченным изменением. Live Pi/Orca/gateway не изменялись.

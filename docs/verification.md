@@ -16,6 +16,7 @@ SHA256d4312d652e188eee4e8a1303e2027d44fa6d033faee5a237711ce76de39c4d57.
 Whole-app FPS/CPU/heap/battery/startup и physical-device/live-network acceptance
 не измерены. Commit/push/GitHub release прямо разрешены; Telegram/host deploy
 не входят в запрос. Посторонний Caddyfile исключён.
+Stable Latest [v0.6.008](https://github.com/billyhargroveofficial/pi-mobile/releases/tag/v0.6.008) опубликован; публичные APK/checksums повторно скачаны и совпали с frozen artifact и GitHub digest. Сеть/экран восстановлены,129 owned guest fixtures удалены, emulator exit0/adb devices пуст.
 
 ## Локальная декомпозиция изображений переписки — 8 октября 2026
 
