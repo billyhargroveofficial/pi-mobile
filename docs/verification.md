@@ -14,8 +14,15 @@ OK(197 tests),857,497s. Matrix6+6+6 PASS (normal/360dp2×light/360dp1.3×dark),
 6 representative PNG просмотрены;15 captures сохранены, immutable baseline прежний.
 APK12 091 655 bytes/SHA25604f1c32bff4d17afeead1a980d68837d4ac9a7bb2d5bf3766efc6680b89a4d35,
 code16, прежний legacy certificate. Новый production signing key не создавался.
-Правило release-only записано; публикация и subsequent Brother Orca setup явно
-разрешены, Telegram credential delivery — только Billy после его отдельного согласия.
+Правило release-only записано. Stable Latest v0.6.009 опубликован18:58:32 UTC;
+public unauthenticated APK/checksum download byte-for-byte совпал с frozen artifact
+и GitHub digest, public APK повторно прошёл release verifier. После публикации
+Orca1.4.220 у брата запущен, workspace mobile настроен без Pi/prompts, relay/Funnel
+не изменены. HTTPS200/unauth401/auth200 и WSS catalog2 workspace PASS; реальный
+release Android opt-in read-only smoke **OK(1)**,11,508s. Credential file отправлен
+Telegram MCP только лично Billy по прямому согласию, без публикации token.
+Pre-smoke private prefs восстановлены, сеть/экран возвращены, emulator остановлен,
+ADB devices пуст. Физическая приёмка и live Pi commands остаются открытыми.
 
 
 ## Релиз0.6.008 — 8 октября2026

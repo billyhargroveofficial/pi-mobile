@@ -84,8 +84,50 @@ Evidence: `/Users/billy/temp/pi-mobile-release-0.6.009/`.
 
 ## Публикация и границы
 
-Публикация выполняется только после final release gates; результаты public
-APK/checksum/latest/tag verification дописываются после фактического успеха.
+8 октября2026,18:58:32 UTC опубликован stable Latest GitHub release
+[v0.6.009](https://github.com/billyhargroveofficial/pi-mobile/releases/tag/v0.6.009),
+draft=false/prerelease=false. Implementation commit
+`dd40940` и annotated tag атомарно отправлены в origin. В release ровно два asset:
+app APK12 091 655 bytes и SHA256SUMS.txt88 bytes; instrumentation APK не опубликован.
+GitHub asset digest совпал с frozen SHA256 выше. Независимая загрузка app APK и
+checksum через public HTTPS без GitHub authentication подтвердила checksum и
+полное byte-for-byte совпадение; actual public APK заново прошёл verifier
+versionCode16/non-debuggable/TLS/certificate/16KiB. Правило release-only сохранено
+в канонической пользовательской инструкции, Pi symlink не заменялся.
+
+## Компьютер брата: после публикации
+
+Через pinned `brother-direct` проверены существующие service/Funnel routes, затем
+запущен **тот же установленный Orca1.4.220**, настроен отдельный workspace `mobile`
+в `/home/flyingkuskus/orca/workspaces/verification/mobile`. Ни Pi-сессия, ни платный
+промпт не запускались; только пустой workspace/обычный shell.
+Первый CLI `open` без полного desktop environment не запустился; следующие `open`
+кратковременно были reachable, но затем Orca завершался с SIGBUS. Причина падения
+не доказана. Прямой запуск того же AppImage через transient user service
+`orca-mobile-app` с проверенными DISPLAY/Wayland/DBus env остался работающим:
+тот же PID/runtime, app/window/runtime/graph ready после нескольких отдельных
+SSH-проверок. Это не новый билд и не обещание автозапуска после reboot; transient
+service не enabled. Ненужный завершившийся launcher удалён, живой Orca оставлен.
+Работающие pi-mobile relay и Tailscale/Funnel routes не перезапускались/не менялись.
+
+Public HTTPS: health200, unauthenticated catalog401, authenticated catalog200;
+WSS получил catalog с2 workspace/0 sessions/inventoryError=null. В точном signed
+release0.6.009 на API35 выполнен opt-in `RelayConnectionSmokeTest`: реальный
+Android WSS достиг Connected и authenticated REST вернул workspace; **OK(1)**,
+11,508s. Только read-only, без launch/commands/prompts. Это дополняет ранее
+пропущенный live opt-in, не заменяя физическую приёмку.
+Credential передан через pinned SSH в private cache собственного root-enabled
+эмулятора, не instrumentation argv/APK/logs. Test удалил input; после force-stop
+все pre-smoke shared_prefs восстановлены byte-for-byte/ownership/mode, токен
+брата не оставлен в настройках эмулятора. Display1080×2400/density420/font1/nightno
+и network0/1/0 восстановлены, собственный эмулятор остановлен; ADB devices пуст.
+
+По отдельной прямой просьбе Billy verified URL/token отправлены файлом0600
+через Telegram MCP **только в его личный chat342262559**; фактическая отправка
+подтверждена инструментом. APK в Telegram/группы не отправлялся. Секрет не
+печатается в отчёте/репозитории; локальный outbox остаётся приватным.
+
+## Оставшиеся границы
 Физический телефон, реальный микрофон/IME/вложения/background и live Pi команды
 остаются отдельной приёмкой. Проверки не запускают платные промпты и не закрывают
 рабочие Pi. Приватные ключи/токены не публикуются; HTTPS/WSS/certificate checks
